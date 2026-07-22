@@ -630,7 +630,8 @@
           setTimeout(() => t.remove(), 700);
         }
       });
-      spawnWcEffects(g, changed);
+      console.log("[wc-debug] changed:", changed.length, changed.map((p) => p.word));
+      try { spawnWcEffects(g, changed); } catch (e) { console.error("[wc-debug] spawnWcEffects error", e); }
     }
 
     // 새로 나타나거나 위치가 바뀐 단어 중 일부에만, 잠깐 크로마틱 아베레이션/드롭섀도우를
