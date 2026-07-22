@@ -11,10 +11,13 @@
 | pg_cron 30초 종합 | `cron.job` `synthesize-30s` (Vault에 project_url/service_role_key) | 마이그레이션 0002 참고 |
 | 프론트 `docs/index.html` | GitHub Pages (`yessurprises/opinion-poll`, main 브랜치 `/docs`) | 커밋 후 `git push` |
 
-접속 URL (세션코드 DEMO 기준):
-- 참가자: `https://yessurprises.github.io/opinion-poll/?role=guest&code=DEMO`
-- 스크린: `https://yessurprises.github.io/opinion-poll/?role=screen&code=DEMO`
-- 운영자: `https://yessurprises.github.io/opinion-poll/?role=admin&code=DEMO&admin_key=<ADMIN_KEY>`
+접속 URL (단일 행사 — 프론트에 세션코드 `MAIN` 하드코딩, code 파라미터 없음):
+- 참가자: `https://yessurprises.github.io/opinion-poll/` (QR은 이 주소 그대로)
+- 스크린: `https://yessurprises.github.io/opinion-poll/?role=screen`
+- 운영자: `https://yessurprises.github.io/opinion-poll/?role=admin&admin_key=<ADMIN_KEY>`
+
+행사명 변경: SQL Editor에서 `update sessions set title='행사명' where code='MAIN';`
+(DEMO 세션은 테스트용 — 실행사 데이터는 전부 MAIN에 쌓인다)
 
 시크릿 (Supabase Edge Function secrets에 설정):
 - `ADMIN_KEY` — 설정 완료 (값은 운영자만 보관)
@@ -40,7 +43,7 @@ AI가 아예 죽어도 행사 진행 가능:
 4. `npx supabase secrets set ADMIN_KEY=<임의 문자열> OPENAI_API_KEY=sk-...`
 5. `npx supabase functions deploy api --no-verify-jwt` / `state --no-verify-jwt` / `synthesize`
 6. `docs/index.html`의 `FUNCTIONS_URL`을 새 ref로 교체 → 커밋 → push (GitHub Pages 자동 반영)
-7. 세션 생성: SQL Editor에서 `insert into sessions (code, title) values ('행사코드', '행사명');`
+7. 세션 생성: SQL Editor에서 `insert into sessions (code, title) values ('MAIN', '행사명');` (프론트가 MAIN 고정)
 
 ## 부하 테스트
 
