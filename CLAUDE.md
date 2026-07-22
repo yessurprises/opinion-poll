@@ -28,7 +28,9 @@ sessions  (id, code unique, title, active_view text default 'idle',  -- idle|pol
            active_poll_id, ai_screening bool default true)
 polls     (id, session_id, type text,  -- choice|wordcloud|open  (scale 없음: 1~5 choice로 대체)
            question, options jsonb, is_active bool)
-votes     (id, poll_id, token, value jsonb, created_at, unique(poll_id, token))
+votes     (id, poll_id, token, value jsonb, created_at)  -- unique 제약 없음(0004에서 제거)
+          -- choice: api가 (poll_id, token) upsert로 1인 1표 유지(재투표=표 변경)
+          -- wordcloud/open: 복수 제출 허용, 1인당 폴별 20건 한도
 questions (id, session_id, token, nickname, body, likes int default 0,
            status text,        -- live|review|hidden|answered  (screening 상태 없음: 심사는 동기 처리)
            liked_by jsonb default '[]', created_at)
@@ -69,7 +71,7 @@ admin_question_status / admin_synthesize / admin_ai_toggle / admin_export
 
 ## 뷰 요구사항
 
-- guest: 진입 3초 내 렌더. active_view 따라 화면 전환(폴 응답 / 질문 작성+live 목록+좋아요 / 대기+종합문). 제출 후 재제출 차단 표시
+- guest: 진입 3초 내 렌더. active_view 따라 화면 전환(폴 응답 / 질문 작성+live 목록+좋아요 / 대기+종합문). choice는 선택 표시+재투표(변경) 허용, wordcloud/open은 복수 제출 허용(건수 표시)
 - screen: 16:9 풀스크린, fade 전환만. 본문 40px+/제목 64px+. 폴 결과(막대/워드클라우드) | Q&A 상위 5 | 종합문. 폴링 실패 시 마지막 화면 유지(빈 화면 금지)
 - admin: 모바일 우선. 폴 토글 / review 큐(승인·숨김) / 자동승인분 목록(원터치 숨김) / 표출 전환 4버튼 / 지금 종합 / **AI 심사 on-off** / 접속·응답·대기 카운터
 - guest/screen에 live 외 상태 질문 노출 금지

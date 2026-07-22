@@ -33,6 +33,7 @@
   .g-option { display: block; width: 100%; text-align: left; background: var(--panel2); color: var(--text);
     padding: 14px 16px; margin-bottom: 10px; font-size: 16px; border-radius: 12px; transition: background .15s; }
   .g-option:active { background: var(--accent); }
+  .g-option.chosen { background: var(--accent); color: #fff; font-weight: 700; }
   .g-option[disabled] { opacity: .5; }
   textarea.g-input { width: 100%; min-height: 90px; background: var(--panel2); color: var(--text);
     border: 1px solid #333850; border-radius: 12px; padding: 12px; font-size: 16px; resize: vertical; }
@@ -185,7 +186,8 @@
       return;
     }
 
-    const votedPolls = new Set();
+    const myChoice = new Map();      // 선택형: pollId -> 내가 고른 보기 (재투표 시 변경)
+    const submittedCount = new Map(); // 텍스트형: pollId -> 제출 건수 (복수 제출 허용)
     const likedQuestions = new Set();
     let lastRenderKey = null;
 
@@ -205,7 +207,7 @@
       // 화면에 영향 주는 상태가 그대로면 재렌더하지 않는다 (입력 중 내용 보호)
       const renderKey = JSON.stringify([
         state.session.active_view, state.active_poll, state.live_questions,
-        state.latest_synthesis, [...votedPolls],
+        state.latest_synthesis, [...myChoice], [...submittedCount],
       ]);
       if (!force && renderKey === lastRenderKey) return;
       lastRenderKey = renderKey;
@@ -255,22 +257,25 @@
     }
 
     function renderPollCard(poll) {
-      if (votedPolls.has(poll.id)) {
-        return `<div class="g-card"><div class="g-done">제출 완료! 재제출은 불가합니다.</div></div>`;
-      }
       if (poll.type === "choice") {
+        const chosen = myChoice.get(poll.id);
         const options = (poll.options || [])
-          .map((o) => `<button class="g-option" data-poll="${poll.id}" data-option="${escapeHtml(o)}">${escapeHtml(o)}</button>`)
+          .map((o) => `<button class="g-option ${chosen === o ? "chosen" : ""}" data-poll="${poll.id}" data-option="${escapeHtml(o)}">${escapeHtml(o)}${chosen === o ? " ✓" : ""}</button>`)
           .join("");
-        return `<div class="g-card"><div class="g-question">${escapeHtml(poll.question)}</div>${options}</div>`;
+        const note = chosen ? `<div class="g-note">선택 완료 — 다른 항목을 누르면 변경됩니다.</div>` : "";
+        return `<div class="g-card"><div class="g-question">${escapeHtml(poll.question)}</div>${options}${note}</div>`;
       }
       if (poll.type === "wordcloud" || poll.type === "open") {
         const label = poll.type === "wordcloud" ? "한 단어로 답해주세요" : "자유롭게 의견을 남겨주세요";
+        const count = submittedCount.get(poll.id) || 0;
+        const note = count ? `<div class="g-note">제출 완료 (${count}건) — 추가로 더 제출할 수 있습니다.</div>` : "";
         return `
           <div class="g-card">
             <div class="g-question">${escapeHtml(poll.question)}</div>
             <textarea class="g-input" id="poll-text" placeholder="${label}" maxlength="200"></textarea>
             <button class="g-submit" id="poll-submit" data-poll="${poll.id}" data-type="${poll.type}">제출</button>
+            ${note}
+            <div class="g-note" id="poll-err"></div>
           </div>`;
       }
       return "";
@@ -309,31 +314,34 @@
       app.querySelectorAll(".g-option").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const pollId = btn.dataset.poll;
+          const option = btn.dataset.option;
+          if (myChoice.get(pollId) === option) return; // 같은 항목 재클릭은 무시
           app.querySelectorAll(".g-option").forEach((b) => (b.disabled = true));
           try {
-            await callApi("vote", { token, poll_id: pollId, value: { option: btn.dataset.option } });
-            votedPolls.add(pollId);
-          } catch (e) {
-            if (String(e.message).includes("이미")) votedPolls.add(pollId);
-          }
-          renderGuest(state);
+            await callApi("vote", { token, poll_id: pollId, value: { option } });
+            myChoice.set(pollId, option);
+          } catch { /* 실패 시 선택 유지 안 함 */ }
+          renderGuest(state, true);
         });
       });
 
       const submitBtn = document.getElementById("poll-submit");
       if (submitBtn) {
         submitBtn.addEventListener("click", async () => {
-          const text = document.getElementById("poll-text").value.trim();
+          const textEl = document.getElementById("poll-text");
+          const text = textEl.value.trim();
           if (!text) return;
           submitBtn.disabled = true;
           const pollId = submitBtn.dataset.poll;
           try {
             await callApi("vote", { token, poll_id: pollId, value: { text } });
-            votedPolls.add(pollId);
-            renderGuest(state);
+            submittedCount.set(pollId, (submittedCount.get(pollId) || 0) + 1);
+            textEl.value = ""; // 재렌더 전에 비워야 보존 로직이 빈 입력창으로 다시 그린다
+            renderGuest(state, true);
           } catch (e) {
             submitBtn.disabled = false;
-            document.getElementById("poll-text").insertAdjacentHTML("afterend", `<div class="g-note">${escapeHtml(e.message)}</div>`);
+            const errEl = document.getElementById("poll-err");
+            if (errEl) errEl.textContent = e.message;
           }
         });
       }

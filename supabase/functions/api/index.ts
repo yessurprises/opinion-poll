@@ -51,13 +51,37 @@ Deno.serve(async (req: Request) => {
         if (poll.type === "open" || poll.type === "wordcloud") {
           const text = typeof value === "object" ? String((value as { text?: string }).text ?? "") : String(value);
           if (containsBannedWord(text)) return errorResponse("금칙어가 포함되어 제출할 수 없습니다", 422);
+
+          // 복수 제출 허용, 1인당 폴별 20건 한도 (도배 방지)
+          const { count, error: countErr } = await supabase
+            .from("votes")
+            .select("id", { count: "exact", head: true })
+            .eq("poll_id", poll_id)
+            .eq("token", token);
+          if (countErr) throw countErr;
+          if ((count ?? 0) >= 20) return errorResponse("제출 한도(20건)를 초과했습니다", 429);
+
+          const { error: insertErr } = await supabase.from("votes").insert({ poll_id, token, value });
+          if (insertErr) throw insertErr;
+          return jsonResponse({ ok: true });
         }
 
-        const { error: insertErr } = await supabase.from("votes").insert({ poll_id, token, value });
-        if (insertErr) {
-          if (insertErr.code === "23505") return errorResponse("이미 응답했습니다", 409);
-          throw insertErr;
+        // choice: 1인 1표 유지하되 재투표 시 기존 표를 변경
+        const { data: existing, error: findErr } = await supabase
+          .from("votes")
+          .select("id")
+          .eq("poll_id", poll_id)
+          .eq("token", token)
+          .maybeSingle();
+        if (findErr) throw findErr;
+
+        if (existing) {
+          const { error: updateErr } = await supabase.from("votes").update({ value }).eq("id", existing.id);
+          if (updateErr) throw updateErr;
+          return jsonResponse({ ok: true, changed: true });
         }
+        const { error: insertErr } = await supabase.from("votes").insert({ poll_id, token, value });
+        if (insertErr) throw insertErr;
         return jsonResponse({ ok: true });
       }
 
