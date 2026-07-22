@@ -562,7 +562,22 @@
             opacity: i === 0 ? 1 : 0.72 + 0.28 * Math.pow(w.count / max, 0.5),
           });
         }
-        if (allFit) return placed;
+        // 확정 전 전수 겹침 재검증 — 폭이 큰 문장형 응답은 x축만으로 간격을 벌릴 여지가
+        // 거의 없어 y축 하나에 의존하게 되고, 그 경계 판정에서 실제 겹침이 새어나갈 수 있다.
+        // 하나라도 겹치면 이 축소 단계는 버리고 더 작은 크기로 다시 시도한다.
+        if (allFit) {
+          let realOverlap = false;
+          for (let a = 0; a < placed.length && !realOverlap; a++) {
+            for (let b = a + 1; b < placed.length; b++) {
+              const p1 = placed[a], p2 = placed[b];
+              if (Math.abs(p1.x - p2.x) < (p1.bw + p2.bw) / 2 && Math.abs(p1.y - p2.y) < (p1.bh + p2.bh) / 2) {
+                realOverlap = true;
+                break;
+              }
+            }
+          }
+          if (!realOverlap) return placed;
+        }
       }
       return null; // 최소 축소로도 안 들어가면 호출부에서 하위 단어 잘라 재시도
     }
