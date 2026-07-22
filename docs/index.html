@@ -65,8 +65,18 @@
   .s-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
     display: flex; align-items: center; justify-content: flex-end; padding-right: 16px; color: #0f1117;
     font-weight: 800; font-size: 26px; transition: width .6s ease; white-space: nowrap; }
-  .s-cloud { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: center; }
-  .s-cloud span { font-weight: 800; }
+  .s-cloud-wrap { flex: 1; min-height: 0; display: flex; }
+  #wc-svg { width: 100%; height: 100%; }
+  #wc-svg text {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    font-weight: 900; letter-spacing: -0.02em;
+    text-anchor: middle; dominant-baseline: middle;
+    transition: transform .9s cubic-bezier(.22,1,.36,1), font-size .9s ease, opacity .6s ease;
+    will-change: transform;
+  }
+  #wc-svg text.wc-enter { opacity: 0; }
+  @keyframes wc-pulse { 0%,100% { filter: url(#wc-glow-strong); } 50% { filter: url(#wc-glow); } }
+  #wc-svg text.wc-top { animation: wc-pulse 3.2s ease-in-out infinite; }
   .s-qa-item { background: var(--panel); border-radius: 18px; padding: 24px 30px; margin-bottom: 20px;
     display: flex; justify-content: space-between; align-items: center; gap: 20px; }
   .s-qa-body { font-size: 34px; line-height: 1.4; }
@@ -422,7 +432,13 @@
     function renderScreen(state) {
       const view = state.session.active_view;
       if (view === "poll" && state.active_poll) {
-        root.querySelector('[data-v="poll"]').innerHTML = renderPollScreen(state.active_poll);
+        const pollEl = root.querySelector('[data-v="poll"]');
+        if (state.active_poll.type === "wordcloud") {
+          ensureWordcloud(pollEl, state.active_poll);
+        } else {
+          delete pollEl.dataset.wcPoll;
+          pollEl.innerHTML = renderPollScreen(state.active_poll);
+        }
       } else if (view === "qna") {
         root.querySelector('[data-v="qna"]').innerHTML = renderQnaScreen(state.live_questions);
       } else if (view === "synthesis") {
@@ -445,18 +461,135 @@
         }).join("");
         return `${title}<div>${rows}</div>`;
       }
-      if (poll.type === "wordcloud") {
-        const words = poll.results || [];
-        const max = words.length ? words[0].count : 1;
-        const cloud = words.map((w) => {
-          const size = 24 + Math.round((w.count / max) * 60);
-          const opacity = 0.55 + 0.45 * (w.count / max);
-          return `<span style="font-size:${size}px;opacity:${opacity.toFixed(2)}">${escapeHtml(w.word)}</span>`;
-        }).join("");
-        return `${title}<div class="s-cloud">${cloud || '<span class="s-body">응답 대기 중…</span>'}</div>`;
-      }
       const count = (poll.results && poll.results.opinion_count) || 0;
       return `${title}<div class="s-body">지금까지 ${count}건의 의견이 모였습니다.</div>`;
+    }
+
+    // ── 워드클라우드 (d3-cloud/Wordle 방식: 중앙→나선 배치 + 충돌 검사, 증분 업데이트) ──
+    const WC_W = 1600, WC_H = 760;
+    const WC_PALETTE = ["#5b8def", "#f2b705", "#ff6b6b", "#4ecdc4", "#a78bfa", "#f97316", "#34d399", "#f472b6"];
+    const wcMeasureCtx = document.createElement("canvas").getContext("2d");
+    let wcLastData = null;
+
+    function wcHash(s) {
+      let h = 5381;
+      for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+      return h;
+    }
+
+    function wcLayout(words) {
+      // 크기: 빈도의 멱함수 스케일. 단어 수가 많으면 전체 축소
+      const max = Math.max(...words.map((w) => w.count), 1);
+      const crowd = Math.min(1, 24 / Math.max(words.length, 1) + 0.55);
+      const sizeOf = (c) => Math.round((30 + 120 * Math.pow(c / max, 0.62)) * crowd);
+
+      for (let shrink = 1; shrink >= 0.55; shrink -= 0.15) {
+        const placed = [];
+        let allFit = true;
+        for (let i = 0; i < words.length; i++) {
+          const w = words[i];
+          const size = Math.max(22, Math.round(sizeOf(w.count) * shrink));
+          const h = wcHash(w.word);
+          const vertical = i > 2 && h % 100 < 22 && w.word.length <= 6; // 상위 3위는 항상 가로
+          wcMeasureCtx.font = `900 ${size}px "Malgun Gothic", sans-serif`;
+          const tw = wcMeasureCtx.measureText(w.word).width + size * 0.25;
+          const th = size * 1.18;
+          const bw = vertical ? th : tw, bh = vertical ? tw : th;
+
+          // 아르키메데스 나선 (16:9라 세로를 눌러서 돈다)
+          let x = 0, y = 0, ok = false;
+          for (let t = 0; t < 2200; t += 1) {
+            const a = 0.28 * t, r = 2.6 * a / (2 * Math.PI);
+            x = r * Math.cos(a + h % 7);
+            y = r * Math.sin(a + h % 7) * 0.52;
+            if (Math.abs(x) + bw / 2 > WC_W / 2 - 16 || Math.abs(y) + bh / 2 > WC_H / 2 - 12) continue;
+            let hit = false;
+            for (const p of placed) {
+              if (Math.abs(x - p.x) < (bw + p.bw) / 2 + 7 && Math.abs(y - p.y) < (bh + p.bh) / 2 + 7) { hit = true; break; }
+            }
+            if (!hit) { ok = true; break; }
+          }
+          if (!ok) { allFit = false; break; }
+          placed.push({
+            word: w.word, count: w.count, x, y, bw, bh, size, vertical,
+            color: WC_PALETTE[h % WC_PALETTE.length],
+            opacity: 0.62 + 0.38 * Math.pow(w.count / max, 0.5),
+          });
+        }
+        if (allFit) return placed;
+      }
+      return null; // 최소 축소로도 안 들어가면 호출부에서 하위 단어 잘라 재시도
+    }
+
+    function ensureWordcloud(el, poll) {
+      if (el.dataset.wcPoll !== poll.id) {
+        el.dataset.wcPoll = poll.id;
+        el.innerHTML = `
+          <div class="s-title" id="wc-title">${escapeHtml(poll.question)}</div>
+          <div class="s-cloud-wrap"><svg id="wc-svg" viewBox="${-WC_W / 2} ${-WC_H / 2} ${WC_W} ${WC_H}" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <filter id="wc-glow" x="-40%" y="-40%" width="180%" height="180%">
+                <feGaussianBlur stdDeviation="5" result="b" />
+                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+              <filter id="wc-glow-strong" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="14" result="b" />
+                <feMerge><feMergeNode in="b" /><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+              </filter>
+            </defs>
+            <g id="wc-words"></g>
+          </svg></div>`;
+        wcLastData = null;
+      }
+      const titleEl = document.getElementById("wc-title");
+      if (titleEl.textContent !== poll.question) titleEl.textContent = poll.question;
+
+      let words = (poll.results || []).slice();
+      const dataKey = JSON.stringify(words);
+      if (dataKey === wcLastData) return; // 데이터 그대로면 손대지 않음
+      wcLastData = dataKey;
+
+      let layout = wcLayout(words);
+      while (!layout && words.length > 5) { words = words.slice(0, Math.floor(words.length * 0.8)); layout = wcLayout(words); }
+      if (!layout) return;
+      updateWordcloud(layout);
+    }
+
+    function updateWordcloud(layout) {
+      const g = document.getElementById("wc-words");
+      const seen = new Set();
+      layout.forEach((p, rank) => {
+        seen.add(p.word);
+        let t = g.querySelector(`text[data-w="${CSS.escape(p.word)}"]`);
+        const transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) rotate(${p.vertical ? -90 : 0}deg)`;
+        if (!t) {
+          t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          t.dataset.w = p.word;
+          t.textContent = p.word;
+          t.classList.add("wc-enter");
+          t.style.transform = `${transform} scale(0.2)`;
+          g.appendChild(t);
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            t.classList.remove("wc-enter");
+            t.style.transform = transform;
+          }));
+        } else {
+          t.style.transform = transform;
+        }
+        t.style.fontSize = p.size + "px";
+        t.style.fill = p.color;
+        t.style.opacity = p.opacity;
+        t.classList.toggle("wc-top", rank === 0);
+        if (rank !== 0) t.setAttribute("filter", rank < 4 ? "url(#wc-glow)" : "");
+        else t.removeAttribute("filter"); // 1위는 CSS pulse 애니메이션이 filter를 관리
+      });
+      g.querySelectorAll("text").forEach((t) => {
+        if (!seen.has(t.dataset.w)) {
+          t.style.opacity = "0";
+          t.style.transform += " scale(0.2)";
+          setTimeout(() => t.remove(), 700);
+        }
+      });
     }
 
     function renderQnaScreen(list) {
