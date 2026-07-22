@@ -4,7 +4,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>실시간 의견수렴</title>
+<link rel="preload" href="fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin />
 <style>
+  /* Pretendard (SIL OFL, self-host — CDN 아님. 원본: github.com/orioncactus/pretendard v1.3.9) */
+  @font-face {
+    font-family: "Pretendard";
+    src: url("fonts/PretendardVariable.woff2") format("woff2");
+    font-weight: 45 920;
+    font-display: swap;
+  }
   :root {
     --bg: #0f1117;
     --panel: #1a1d29;
@@ -19,7 +27,7 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
   #app { min-height: 100vh; }
   button { font-family: inherit; cursor: pointer; border: none; border-radius: var(--radius); }
   input, textarea { font-family: inherit; }
@@ -68,8 +76,8 @@
   .s-cloud-wrap { flex: 1; min-height: 0; display: flex; }
   #wc-svg { width: 100%; height: 100%; }
   #wc-svg text {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-    font-weight: 900; letter-spacing: -0.02em;
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    font-weight: 850; letter-spacing: -0.03em;
     text-anchor: middle; dominant-baseline: middle;
     transition: transform .9s cubic-bezier(.22,1,.36,1), font-size .9s ease, opacity .6s ease;
     will-change: transform;
@@ -467,9 +475,16 @@
 
     // ── 워드클라우드 (d3-cloud/Wordle 방식: 중앙→나선 배치 + 충돌 검사, 증분 업데이트) ──
     const WC_W = 1600, WC_H = 760;
-    const WC_PALETTE = ["#5b8def", "#f2b705", "#ff6b6b", "#4ecdc4", "#a78bfa", "#f97316", "#34d399", "#f472b6"];
+    // Pantone AW 2025/26 그레이드를 다크 배경용으로 밝기 보정한 팔레트
+    // Brandied Melon / Lemon Grass / Primrose Pink / Vapor Blue / Lyons Blue / Damson / Poppy Red / Winterberry
+    const WC_PALETTE = ["#F2B880", "#E6DFA3", "#F2BFCB", "#9CC3E5", "#5FB0CE", "#C09BD8", "#F08A7E", "#E9808F"];
+    const WC_TOP_COLOR = "#F1EFE7"; // Cloud Dancer — Pantone 2026 올해의 컬러 (1위 단어 전용)
     const wcMeasureCtx = document.createElement("canvas").getContext("2d");
     let wcLastData = null;
+    // Pretendard 로드 완료 후 실측 폭이 달라지므로 레이아웃 무효화 → 다음 폴링에 재배치
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('850 100px Pretendard').then(() => { wcLastData = null; }).catch(() => {});
+    }
 
     function wcHash(s) {
       let h = 5381;
@@ -491,7 +506,7 @@
           const size = Math.max(22, Math.round(sizeOf(w.count) * shrink));
           const h = wcHash(w.word);
           const vertical = i > 2 && h % 100 < 22 && w.word.length <= 6; // 상위 3위는 항상 가로
-          wcMeasureCtx.font = `900 ${size}px "Malgun Gothic", sans-serif`;
+          wcMeasureCtx.font = `850 ${size}px Pretendard, "Malgun Gothic", sans-serif`;
           const tw = wcMeasureCtx.measureText(w.word).width + size * 0.25;
           const th = size * 1.18;
           const bw = vertical ? th : tw, bh = vertical ? tw : th;
@@ -512,8 +527,8 @@
           if (!ok) { allFit = false; break; }
           placed.push({
             word: w.word, count: w.count, x, y, bw, bh, size, vertical,
-            color: WC_PALETTE[h % WC_PALETTE.length],
-            opacity: 0.62 + 0.38 * Math.pow(w.count / max, 0.5),
+            color: i === 0 ? WC_TOP_COLOR : WC_PALETTE[h % WC_PALETTE.length],
+            opacity: i === 0 ? 1 : 0.72 + 0.28 * Math.pow(w.count / max, 0.5),
           });
         }
         if (allFit) return placed;
