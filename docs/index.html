@@ -505,7 +505,12 @@
         let allFit = true;
         for (let i = 0; i < words.length; i++) {
           const w = words[i];
-          const size = Math.max(22, Math.round(sizeOf(w.count) * shrink));
+          let size = Math.max(22, Math.round(sizeOf(w.count) * shrink));
+          // 띄어쓰기 포함 긴 문장이 응답으로 들어오면(스펙은 "한 단어"지만 강제할 수 없음),
+          // 빈도만으로 크기를 매길 경우 동률 문장들이 전부 최대 크기로 그려져 배치가 실패하고
+          // 화면이 통째로 비어버릴 수 있다. 글자 수가 많을수록 폭 기준 상한을 추가로 걸어 방지.
+          const widthCap = Math.floor((WC_W * 0.4) / Math.max(w.word.length * 0.58, 1));
+          size = Math.max(22, Math.min(size, widthCap));
           const h = wcHash(w.word);
           const vertical = i > 2 && h % 100 < 22 && w.word.length <= 6; // 상위 3위는 항상 가로
           wcMeasureCtx.font = `850 ${size}px Pretendard, "Malgun Gothic", sans-serif`;
