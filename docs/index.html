@@ -152,8 +152,38 @@
 
   const app = document.getElementById("app");
 
+  // 메인 페이지: 코드 없이 접속하면 행사 코드 입력 화면
   if (!CODE) {
-    app.innerHTML = `<div class="g-wrap"><div class="a-err">행사 코드가 없습니다. URL에 ?code=행사코드 를 붙여주세요.</div></div>`;
+    app.innerHTML = `
+      <div class="g-wrap" style="display:flex;flex-direction:column;justify-content:center;min-height:100vh">
+        <div style="text-align:center;margin-bottom:26px">
+          <div style="font-size:44px;margin-bottom:10px">🗳️</div>
+          <div style="font-size:24px;font-weight:800">실시간 의견수렴</div>
+          <div class="g-note" style="margin-top:6px">행사 코드를 입력하고 입장하세요</div>
+        </div>
+        <div class="g-card">
+          <input class="g-input" id="main-code" placeholder="행사 코드 (예: DEMO)" maxlength="20"
+            autocapitalize="characters" autocomplete="off" style="text-align:center;font-size:20px;letter-spacing:2px" />
+          <button class="g-submit" id="main-enter">입장하기</button>
+          <div class="g-note" id="main-err" style="text-align:center"></div>
+        </div>
+      </div>`;
+    const codeEl = document.getElementById("main-code");
+    const enter = async () => {
+      const code = codeEl.value.trim().toUpperCase();
+      if (!code) return;
+      const errEl = document.getElementById("main-err");
+      errEl.textContent = "확인 중…";
+      try {
+        await callApi("join", { code });
+        location.href = `${location.pathname}?role=guest&code=${encodeURIComponent(code)}`;
+      } catch {
+        errEl.textContent = "행사 코드를 찾을 수 없습니다. 다시 확인해주세요.";
+      }
+    };
+    document.getElementById("main-enter").addEventListener("click", enter);
+    codeEl.addEventListener("keydown", (e) => { if (e.key === "Enter") enter(); });
+    codeEl.focus();
     return;
   }
 
