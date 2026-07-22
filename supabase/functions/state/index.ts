@@ -45,7 +45,7 @@ Deno.serve(async (req: Request) => {
   try {
     const { data: session, error: sessionErr } = await supabase
       .from("sessions")
-      .select("id, title, active_view, active_poll_id, ai_screening")
+      .select("id, title, active_view, active_poll_id, ai_screening, ai_synthesis")
       .eq("code", code)
       .maybeSingle();
     if (sessionErr) throw sessionErr;
@@ -129,6 +129,7 @@ Deno.serve(async (req: Request) => {
         .eq("poll_id", session.active_poll_id ?? "");
 
       responseBody.ai_screening = session.ai_screening;
+      responseBody.ai_synthesis = session.ai_synthesis;
       responseBody.review_queue = reviewQueue ?? [];
       responseBody.polls = allPolls ?? [];
       responseBody.counters = {

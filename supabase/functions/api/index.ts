@@ -184,11 +184,51 @@ Deno.serve(async (req: Request) => {
 
       case "admin_ai_toggle": {
         if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
-        const { session_id, ai_screening } = body as { session_id?: string; ai_screening?: boolean };
-        if (!session_id || typeof ai_screening !== "boolean") {
-          return errorResponse("missing session_id/ai_screening", 400);
+        const { session_id, ai_screening, ai_synthesis } = body as {
+          session_id?: string;
+          ai_screening?: boolean;
+          ai_synthesis?: boolean;
+        };
+        if (!session_id || (typeof ai_screening !== "boolean" && typeof ai_synthesis !== "boolean")) {
+          return errorResponse("missing session_id/ai_screening|ai_synthesis", 400);
         }
-        const { error } = await supabase.from("sessions").update({ ai_screening }).eq("id", session_id);
+        const patch: Record<string, boolean> = {};
+        if (typeof ai_screening === "boolean") patch.ai_screening = ai_screening;
+        if (typeof ai_synthesis === "boolean") patch.ai_synthesis = ai_synthesis;
+        const { error } = await supabase.from("sessions").update(patch).eq("id", session_id);
+        if (error) throw error;
+        return jsonResponse({ ok: true });
+      }
+
+      case "admin_manual_synthesis": {
+        // LLM 전면 장애 시 운영자가 종합문을 직접 작성해 게시하는 수기 경로
+        if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
+        const { session_id, lines } = body as { session_id?: string; lines?: string[] };
+        if (!session_id || !Array.isArray(lines)) return errorResponse("missing session_id/lines", 400);
+        const cleaned = lines.map((l) => String(l).trim().slice(0, 120)).filter(Boolean).slice(0, 5);
+        if (!cleaned.length) return errorResponse("lines is empty", 400);
+
+        // 현재 의견 수를 기록해 두면, AI를 다시 켜도 신규 응답이 없는 한 cron이 수기 종합문을 덮어쓰지 않는다
+        let opinionCount = 0;
+        const { data: sessionRow } = await supabase
+          .from("sessions")
+          .select("active_poll_id")
+          .eq("id", session_id)
+          .maybeSingle();
+        if (sessionRow?.active_poll_id) {
+          const { count } = await supabase
+            .from("votes")
+            .select("id", { count: "exact", head: true })
+            .eq("poll_id", sessionRow.active_poll_id);
+          opinionCount = count ?? 0;
+        }
+
+        const { error } = await supabase.from("syntheses").insert({
+          session_id,
+          clusters: [],
+          lines: cleaned,
+          opinion_count: opinionCount,
+        });
         if (error) throw error;
         return jsonResponse({ ok: true });
       }

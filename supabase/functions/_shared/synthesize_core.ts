@@ -6,6 +6,14 @@ import { synthesizeOpinions, SynthesisResult } from "./openai.ts";
 export async function runSynthesis(sessionId: string): Promise<{ skipped: boolean; reason?: string }> {
   const supabase = getServiceClient();
 
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("ai_synthesis")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session) return { skipped: true, reason: "session not found" };
+  if (!session.ai_synthesis) return { skipped: true, reason: "ai_synthesis off (manual mode)" };
+
   const { data: openPoll } = await supabase
     .from("polls")
     .select("id")

@@ -117,7 +117,7 @@
   "use strict";
 
   // ── 배포 시 실제 프로젝트 값으로 교체 ──────────────────────────────
-  const FUNCTIONS_URL = "https://__SUPABASE_PROJECT_REF__.supabase.co/functions/v1";
+  const FUNCTIONS_URL = "https://gocfxeoqbdfmpdpomunm.supabase.co/functions/v1";
   // ────────────────────────────────────────────────────────────────
 
   const qs = new URLSearchParams(location.search);
@@ -454,15 +454,18 @@
     let busy = false;
 
     async function act(action, payload) {
-      if (busy) return;
+      if (busy) return false;
       busy = true;
+      let ok = true;
       try {
         await callApi(action, { admin_key: ADMIN_KEY, ...payload });
       } catch (e) {
+        ok = false;
         alert(e.message);
       }
       busy = false;
-      tick();
+      await tick();
+      return ok;
     }
 
     async function tick() {
@@ -476,6 +479,12 @@
     }
 
     function render(state) {
+      // 2초 폴링 재렌더가 수기 종합문 입력을 지우지 않도록 값·포커스 보존
+      const prevManual = document.getElementById("manual-synth");
+      const manualValue = prevManual ? prevManual.value : "";
+      const manualFocused = prevManual && document.activeElement === prevManual;
+      const manualCursor = manualFocused ? prevManual.selectionStart : 0;
+
       const views = ["idle", "poll", "qna", "synthesis"];
       const viewLabel = { idle: "대기", poll: "폴", qna: "Q&A", synthesis: "종합" };
 
@@ -517,7 +526,15 @@
         <div class="a-section">
           <div class="a-toggle-row"><h3 style="margin:0">AI 자동심사</h3>
             <div class="a-switch ${state.ai_screening ? "on" : ""}" id="ai-toggle"></div></div>
-          <button class="a-full" id="do-synthesize">지금 종합하기</button>
+          <div class="a-toggle-row"><h3 style="margin:0">AI 자동종합</h3>
+            <div class="a-switch ${state.ai_synthesis ? "on" : ""}" id="ai-synth-toggle"></div></div>
+          <button class="a-full" id="do-synthesize" ${state.ai_synthesis ? "" : "disabled style='opacity:.4'"}>지금 종합하기</button>
+        </div>
+
+        <div class="a-section">
+          <h3>수기 종합문 (AI 장애 시 직접 게시, 줄바꿈으로 구분)</h3>
+          <textarea class="g-input" id="manual-synth" rows="3" placeholder="한 줄에 하나씩, 최대 5줄"></textarea>
+          <button class="a-full" id="do-manual-synth" style="margin-top:8px">수기 종합 게시</button>
         </div>
 
         <div class="a-section"><h3>폴 켜기/끄기</h3>${pollRows}</div>
@@ -525,6 +542,15 @@
         <div class="a-section"><h3>자동승인분 (원터치 숨김)</h3>${liveItems}</div>
         <div class="a-section"><button class="a-full" id="do-export">CSV 내보내기</button></div>
       `;
+
+      const manualEl = document.getElementById("manual-synth");
+      if (manualEl && manualValue) {
+        manualEl.value = manualValue;
+        if (manualFocused) {
+          manualEl.focus();
+          manualEl.setSelectionRange(manualCursor, manualCursor);
+        }
+      }
 
       root.querySelectorAll("[data-view]").forEach((b) =>
         b.addEventListener("click", () => act("admin_set_view", { session_id: state.session.id, view: b.dataset.view })));
@@ -544,8 +570,21 @@
       aiToggle.addEventListener("click", () =>
         act("admin_ai_toggle", { session_id: state.session.id, ai_screening: !state.ai_screening }));
 
+      document.getElementById("ai-synth-toggle").addEventListener("click", () =>
+        act("admin_ai_toggle", { session_id: state.session.id, ai_synthesis: !state.ai_synthesis }));
+
       document.getElementById("do-synthesize").addEventListener("click", () =>
         act("admin_synthesize", { session_id: state.session.id }));
+
+      document.getElementById("do-manual-synth").addEventListener("click", async () => {
+        const lines = document.getElementById("manual-synth").value
+          .split("\n").map((l) => l.trim()).filter(Boolean);
+        if (!lines.length) return alert("종합문을 한 줄 이상 입력하세요.");
+        if (await act("admin_manual_synthesis", { session_id: state.session.id, lines })) {
+          const el = document.getElementById("manual-synth");
+          if (el) el.value = "";
+        }
+      });
 
       document.getElementById("do-export").addEventListener("click", async () => {
         const res = await fetch(`${FUNCTIONS_URL}/api`, {
