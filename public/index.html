@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>실시간 의견수렴</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d29;
+    --panel2: #232636;
+    --text: #f2f3f7;
+    --muted: #9aa0b4;
+    --accent: #5b8def;
+    --accent2: #f2b705;
+    --danger: #e5484d;
+    --ok: #30a46c;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
+  #app { min-height: 100vh; }
+  button { font-family: inherit; cursor: pointer; border: none; border-radius: var(--radius); }
+  input, textarea { font-family: inherit; }
+  .hidden { display: none !important; }
+
+  /* ---------- guest ---------- */
+  .g-wrap { max-width: 560px; margin: 0 auto; padding: 20px 16px 40px; }
+  .g-title { font-size: 20px; font-weight: 700; margin: 4px 0 18px; }
+  .g-card { background: var(--panel); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+  .g-question { font-size: 18px; font-weight: 600; margin-bottom: 14px; line-height: 1.4; }
+  .g-option { display: block; width: 100%; text-align: left; background: var(--panel2); color: var(--text);
+    padding: 14px 16px; margin-bottom: 10px; font-size: 16px; border-radius: 12px; transition: background .15s; }
+  .g-option:active { background: var(--accent); }
+  .g-option[disabled] { opacity: .5; }
+  textarea.g-input { width: 100%; min-height: 90px; background: var(--panel2); color: var(--text);
+    border: 1px solid #333850; border-radius: 12px; padding: 12px; font-size: 16px; resize: vertical; }
+  input.g-input { width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid #333850; border-radius: 12px; padding: 12px; font-size: 16px; }
+  .g-submit { width: 100%; background: var(--accent); color: #fff; font-size: 16px; font-weight: 700;
+    padding: 14px; margin-top: 10px; }
+  .g-submit[disabled] { background: #333850; color: var(--muted); }
+  .g-note { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .g-done { text-align: center; padding: 30px 10px; color: var(--ok); font-size: 16px; font-weight: 600; }
+  .g-qitem { background: var(--panel2); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .g-qbody { font-size: 15px; line-height: 1.5; margin-bottom: 8px; }
+  .g-qmeta { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; }
+  .g-like { background: none; color: var(--muted); font-size: 14px; padding: 4px 10px; border-radius: 20px; }
+  .g-like.liked { color: var(--accent2); font-weight: 700; }
+  .g-synth-line { font-size: 16px; line-height: 1.7; }
+  .g-waiting { text-align: center; color: var(--muted); padding: 40px 10px; }
+
+  /* ---------- screen ---------- */
+  #screen-root { width: 100vw; height: 100vh; overflow: hidden; position: relative; background: var(--bg); }
+  .s-view { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center;
+    padding: 60px 80px; opacity: 0; transition: opacity .5s ease; pointer-events: none; }
+  .s-view.active { opacity: 1; pointer-events: auto; }
+  .s-title { font-size: 64px; font-weight: 800; margin-bottom: 36px; line-height: 1.2; }
+  .s-body { font-size: 40px; line-height: 1.5; }
+  .s-bar-row { display: flex; align-items: center; margin-bottom: 22px; gap: 20px; }
+  .s-bar-label { width: 260px; font-size: 34px; font-weight: 600; text-align: right; flex-shrink: 0; }
+  .s-bar-track { flex: 1; background: var(--panel2); border-radius: 10px; height: 54px; overflow: hidden; }
+  .s-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: flex-end; padding-right: 16px; color: #0f1117;
+    font-weight: 800; font-size: 26px; transition: width .6s ease; white-space: nowrap; }
+  .s-cloud { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: center; }
+  .s-cloud span { font-weight: 800; }
+  .s-qa-item { background: var(--panel); border-radius: 18px; padding: 24px 30px; margin-bottom: 20px;
+    display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+  .s-qa-body { font-size: 34px; line-height: 1.4; }
+  .s-qa-like { font-size: 30px; color: var(--accent2); font-weight: 800; flex-shrink: 0; }
+  .s-cluster { margin-bottom: 24px; }
+  .s-cluster-name { font-size: 32px; font-weight: 700; }
+  .s-cluster-quote { font-size: 24px; color: var(--muted); margin-top: 6px; }
+  .s-lines div { margin-bottom: 14px; }
+  .s-idle { text-align: center; }
+  .s-idle .s-title { font-size: 72px; }
+
+  /* ---------- admin ---------- */
+  .a-wrap { max-width: 480px; margin: 0 auto; padding: 16px 14px 50px; }
+  .a-sticky { position: sticky; top: 0; background: var(--bg); padding: 10px 0; z-index: 5; }
+  .a-counters { display: flex; gap: 10px; margin-bottom: 14px; }
+  .a-counter { flex: 1; background: var(--panel); border-radius: 12px; padding: 10px; text-align: center; }
+  .a-counter b { display: block; font-size: 22px; }
+  .a-counter span { font-size: 12px; color: var(--muted); }
+  .a-section { background: var(--panel); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+  .a-section h3 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 600; }
+  .a-viewbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .a-viewbtns button { padding: 14px 0; background: var(--panel2); color: var(--text); font-size: 15px; font-weight: 700; }
+  .a-viewbtns button.active { background: var(--accent); color: #fff; }
+  .a-toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .a-switch { width: 46px; height: 26px; border-radius: 20px; background: #333850; position: relative; flex-shrink: 0; }
+  .a-switch.on { background: var(--ok); }
+  .a-switch::after { content: ""; position: absolute; width: 20px; height: 20px; background: #fff; border-radius: 50%;
+    top: 3px; left: 3px; transition: left .15s; }
+  .a-switch.on::after { left: 23px; }
+  .a-poll-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #2a2d3d; }
+  .a-poll-row:last-child { border-bottom: none; }
+  .a-poll-q { font-size: 14px; flex: 1; margin-right: 10px; }
+  .a-btn { background: var(--panel2); color: var(--text); font-size: 13px; padding: 8px 12px; }
+  .a-btn.primary { background: var(--accent); color: #fff; }
+  .a-btn.danger { background: var(--danger); color: #fff; }
+  .a-btn.ok { background: var(--ok); color: #fff; }
+  .a-review-item { background: var(--panel2); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+  .a-review-body { font-size: 14px; margin-bottom: 8px; }
+  .a-review-actions { display: flex; gap: 8px; }
+  .a-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 10px 0; }
+  .a-full { width: 100%; padding: 14px; background: var(--accent); color: #fff; font-weight: 700; font-size: 15px; }
+  .a-err { background: var(--danger); color: #fff; padding: 10px 14px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(() => {
+  "use strict";
+
+  // ── 배포 시 실제 프로젝트 값으로 교체 ──────────────────────────────
+  const FUNCTIONS_URL = "https://__SUPABASE_PROJECT_REF__.supabase.co/functions/v1";
+  // ────────────────────────────────────────────────────────────────
+
+  const qs = new URLSearchParams(location.search);
+  const ROLE = qs.get("role") || "guest";
+  const CODE = qs.get("code") || "";
+  const ADMIN_KEY = qs.get("admin_key") || "";
+
+  async function callApi(action, payload) {
+    const res = await fetch(`${FUNCTIONS_URL}/api`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...payload }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `요청 실패 (${res.status})`);
+    return data;
+  }
+
+  async function fetchState(role) {
+    const params = new URLSearchParams({ code: CODE, role });
+    if (role === "admin") params.set("admin_key", ADMIN_KEY);
+    const res = await fetch(`${FUNCTIONS_URL}/state?${params.toString()}`);
+    if (!res.ok) throw new Error(`상태 조회 실패 (${res.status})`);
+    return res.json();
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  const app = document.getElementById("app");
+
+  if (!CODE) {
+    app.innerHTML = `<div class="g-wrap"><div class="a-err">행사 코드가 없습니다. URL에 ?code=행사코드 를 붙여주세요.</div></div>`;
+    return;
+  }
+
+  if (ROLE === "guest") runGuest();
+  else if (ROLE === "screen") runScreen();
+  else if (ROLE === "admin") runAdmin();
+  else app.innerHTML = `<div class="g-wrap"><div class="a-err">알 수 없는 role: ${escapeHtml(ROLE)}</div></div>`;
+
+  // ============================================================ guest
+  function getTokenFromHash() {
+    const m = location.hash.match(/t=([^&]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+  function setTokenHash(token) {
+    history.replaceState(null, "", `${location.pathname}${location.search}#t=${encodeURIComponent(token)}`);
+  }
+
+  async function runGuest() {
+    app.innerHTML = `<div class="g-wrap"><div class="g-waiting">입장 중…</div></div>`;
+    let token = getTokenFromHash();
+    let sessionId = null;
+    let title = "";
+
+    try {
+      if (!token) {
+        const joined = await callApi("join", { code: CODE });
+        token = joined.token;
+        sessionId = joined.session_id;
+        title = joined.title;
+        setTokenHash(token);
+      }
+    } catch (e) {
+      app.innerHTML = `<div class="g-wrap"><div class="a-err">${escapeHtml(e.message)}</div></div>`;
+      return;
+    }
+
+    const votedPolls = new Set();
+    const likedQuestions = new Set();
+    let lastView = null;
+
+    async function tick() {
+      let state;
+      try {
+        state = await fetchState("guest");
+      } catch {
+        return; // 마지막 화면 유지
+      }
+      sessionId = state.session.id;
+      title = state.session.title;
+      renderGuest(state);
+    }
+
+    function renderGuest(state) {
+      const view = state.session.active_view;
+      const wrap = [`<div class="g-wrap"><div class="g-title">${escapeHtml(title)}</div>`];
+
+      if (view === "poll" && state.active_poll) {
+        wrap.push(renderPollCard(state.active_poll));
+      } else if (view === "qna") {
+        wrap.push(renderAskCard());
+        wrap.push(renderLiveQuestions(state.live_questions));
+      } else if (view === "synthesis") {
+        wrap.push(renderSynthesisCard(state.latest_synthesis));
+      } else {
+        wrap.push(`<div class="g-card"><div class="g-waiting">잠시 후 시작합니다…</div></div>`);
+      }
+
+      wrap.push(`</div>`);
+      app.innerHTML = wrap.join("");
+      bindGuestEvents(state);
+      lastView = view;
+    }
+
+    function renderPollCard(poll) {
+      if (votedPolls.has(poll.id)) {
+        return `<div class="g-card"><div class="g-done">제출 완료! 재제출은 불가합니다.</div></div>`;
+      }
+      if (poll.type === "choice") {
+        const options = (poll.options || [])
+          .map((o) => `<button class="g-option" data-poll="${poll.id}" data-option="${escapeHtml(o)}">${escapeHtml(o)}</button>`)
+          .join("");
+        return `<div class="g-card"><div class="g-question">${escapeHtml(poll.question)}</div>${options}</div>`;
+      }
+      if (poll.type === "wordcloud" || poll.type === "open") {
+        const label = poll.type === "wordcloud" ? "한 단어로 답해주세요" : "자유롭게 의견을 남겨주세요";
+        return `
+          <div class="g-card">
+            <div class="g-question">${escapeHtml(poll.question)}</div>
+            <textarea class="g-input" id="poll-text" placeholder="${label}" maxlength="200"></textarea>
+            <button class="g-submit" id="poll-submit" data-poll="${poll.id}" data-type="${poll.type}">제출</button>
+          </div>`;
+      }
+      return "";
+    }
+
+    function renderAskCard() {
+      return `
+        <div class="g-card">
+          <div class="g-question">질문을 남겨주세요</div>
+          <input class="g-input" id="ask-nick" placeholder="닉네임 (선택)" maxlength="20" style="margin-bottom:8px" />
+          <textarea class="g-input" id="ask-body" placeholder="질문 내용" maxlength="500"></textarea>
+          <button class="g-submit" id="ask-submit">질문 제출</button>
+          <div class="g-note" id="ask-status"></div>
+        </div>`;
+    }
+
+    function renderLiveQuestions(list) {
+      if (!list || !list.length) return `<div class="a-empty">아직 등록된 질문이 없습니다.</div>`;
+      return list.map((q) => `
+        <div class="g-qitem">
+          <div class="g-qbody">${escapeHtml(q.body)}</div>
+          <div class="g-qmeta">
+            <span>${escapeHtml(q.nickname || "익명")}</span>
+            <button class="g-like ${likedQuestions.has(q.id) ? "liked" : ""}" data-qid="${q.id}">♥ ${q.likes}</button>
+          </div>
+        </div>`).join("");
+    }
+
+    function renderSynthesisCard(synth) {
+      if (!synth) return `<div class="g-card"><div class="g-waiting">종합 결과를 기다리는 중…</div></div>`;
+      const lines = (synth.lines || []).map((l) => `<div class="g-synth-line">• ${escapeHtml(l)}</div>`).join("");
+      return `<div class="g-card">${lines}</div>`;
+    }
+
+    function bindGuestEvents(state) {
+      app.querySelectorAll(".g-option").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const pollId = btn.dataset.poll;
+          app.querySelectorAll(".g-option").forEach((b) => (b.disabled = true));
+          try {
+            await callApi("vote", { token, poll_id: pollId, value: { option: btn.dataset.option } });
+            votedPolls.add(pollId);
+          } catch (e) {
+            if (String(e.message).includes("이미")) votedPolls.add(pollId);
+          }
+          renderGuest(state);
+        });
+      });
+
+      const submitBtn = document.getElementById("poll-submit");
+      if (submitBtn) {
+        submitBtn.addEventListener("click", async () => {
+          const text = document.getElementById("poll-text").value.trim();
+          if (!text) return;
+          submitBtn.disabled = true;
+          const pollId = submitBtn.dataset.poll;
+          try {
+            await callApi("vote", { token, poll_id: pollId, value: { text } });
+            votedPolls.add(pollId);
+            renderGuest(state);
+          } catch (e) {
+            submitBtn.disabled = false;
+            document.getElementById("poll-text").insertAdjacentHTML("afterend", `<div class="g-note">${escapeHtml(e.message)}</div>`);
+          }
+        });
+      }
+
+      const askBtn = document.getElementById("ask-submit");
+      if (askBtn) {
+        askBtn.addEventListener("click", async () => {
+          const bodyEl = document.getElementById("ask-body");
+          const body = bodyEl.value.trim();
+          const statusEl = document.getElementById("ask-status");
+          if (!body) return;
+          askBtn.disabled = true;
+          statusEl.textContent = "심사 중…";
+          try {
+            const r = await callApi("ask", {
+              token, session_id: sessionId,
+              nickname: document.getElementById("ask-nick").value.trim(),
+              body,
+            });
+            const msg = { live: "질문이 등록되었습니다!", review: "검토 후 게시됩니다.", hidden: "게시가 제한되었습니다." };
+            statusEl.textContent = msg[r.status] || "제출되었습니다.";
+            bodyEl.value = "";
+          } catch (e) {
+            statusEl.textContent = e.message;
+          }
+          askBtn.disabled = false;
+        });
+      }
+
+      app.querySelectorAll(".g-like").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const qid = btn.dataset.qid;
+          try {
+            const r = await callApi("like", { token, question_id: qid });
+            if (r.liked) likedQuestions.add(qid); else likedQuestions.delete(qid);
+            btn.textContent = `♥ ${r.likes}`;
+            btn.classList.toggle("liked", r.liked);
+          } catch { /* noop */ }
+        });
+      });
+    }
+
+    tick();
+    setInterval(tick, 3000);
+  }
+
+  // ============================================================ screen
+  async function runScreen() {
+    app.innerHTML = `<div id="screen-root"></div>`;
+    const root = document.getElementById("screen-root");
+    root.innerHTML = [
+      `<div class="s-view" data-v="idle"><div class="s-idle"><div class="s-title">잠시 후 시작합니다</div></div></div>`,
+      `<div class="s-view" data-v="poll"></div>`,
+      `<div class="s-view" data-v="qna"></div>`,
+      `<div class="s-view" data-v="synthesis"></div>`,
+    ].join("");
+
+    async function tick() {
+      let state;
+      try {
+        state = await fetchState("screen");
+      } catch {
+        return; // 마지막 화면 유지, 빈 화면 금지
+      }
+      renderScreen(state);
+    }
+
+    function switchView(view) {
+      root.querySelectorAll(".s-view").forEach((el) => el.classList.toggle("active", el.dataset.v === view));
+    }
+
+    function renderScreen(state) {
+      const view = state.session.active_view;
+      if (view === "poll" && state.active_poll) {
+        root.querySelector('[data-v="poll"]').innerHTML = renderPollScreen(state.active_poll);
+      } else if (view === "qna") {
+        root.querySelector('[data-v="qna"]').innerHTML = renderQnaScreen(state.live_questions);
+      } else if (view === "synthesis") {
+        root.querySelector('[data-v="synthesis"]').innerHTML = renderSynthScreen(state.latest_synthesis);
+      }
+      switchView(["poll", "qna", "synthesis"].includes(view) ? view : "idle");
+    }
+
+    function renderPollScreen(poll) {
+      const title = `<div class="s-title">${escapeHtml(poll.question)}</div>`;
+      if (poll.type === "choice") {
+        const total = poll.total_votes || 0;
+        const rows = (poll.options || []).map((o) => {
+          const count = (poll.results && poll.results[o]) || 0;
+          const pct = total ? Math.round((count / total) * 100) : 0;
+          return `<div class="s-bar-row">
+            <div class="s-bar-label">${escapeHtml(o)}</div>
+            <div class="s-bar-track"><div class="s-bar-fill" style="width:${Math.max(pct, 4)}%">${pct}%</div></div>
+          </div>`;
+        }).join("");
+        return `${title}<div>${rows}</div>`;
+      }
+      if (poll.type === "wordcloud") {
+        const words = poll.results || [];
+        const max = words.length ? words[0].count : 1;
+        const cloud = words.map((w) => {
+          const size = 24 + Math.round((w.count / max) * 60);
+          const opacity = 0.55 + 0.45 * (w.count / max);
+          return `<span style="font-size:${size}px;opacity:${opacity.toFixed(2)}">${escapeHtml(w.word)}</span>`;
+        }).join("");
+        return `${title}<div class="s-cloud">${cloud || '<span class="s-body">응답 대기 중…</span>'}</div>`;
+      }
+      const count = (poll.results && poll.results.opinion_count) || 0;
+      return `${title}<div class="s-body">지금까지 ${count}건의 의견이 모였습니다.</div>`;
+    }
+
+    function renderQnaScreen(list) {
+      if (!list || !list.length) return `<div class="s-title">Q&amp;A</div><div class="s-body">질문을 기다리는 중입니다…</div>`;
+      const items = list.map((q) => `
+        <div class="s-qa-item">
+          <div class="s-qa-body">${escapeHtml(q.body)}</div>
+          <div class="s-qa-like">♥ ${q.likes}</div>
+        </div>`).join("");
+      return `<div class="s-title">실시간 Q&amp;A</div><div>${items}</div>`;
+    }
+
+    function renderSynthScreen(synth) {
+      if (!synth) return `<div class="s-title">AI 종합</div><div class="s-body">의견을 종합하는 중입니다…</div>`;
+      const clusters = (synth.clusters || []).map((c) => `
+        <div class="s-cluster">
+          <div class="s-cluster-name">${escapeHtml(c.name)} · ${c.share_pct}%</div>
+          <div class="s-cluster-quote">"${escapeHtml(c.representative_quote)}"</div>
+        </div>`).join("");
+      const lines = (synth.lines || []).map((l) => `<div>• ${escapeHtml(l)}</div>`).join("");
+      return `<div class="s-title">AI 종합</div><div>${clusters}</div><div class="s-lines s-body">${lines}</div>`;
+    }
+
+    tick();
+    setInterval(tick, 3000);
+  }
+
+  // ============================================================ admin
+  async function runAdmin() {
+    if (!ADMIN_KEY) {
+      app.innerHTML = `<div class="a-wrap"><div class="a-err">admin_key가 없습니다. URL에 &admin_key=... 를 붙여주세요.</div></div>`;
+      return;
+    }
+    app.innerHTML = `<div class="a-wrap" id="a-root"><div class="a-empty">불러오는 중…</div></div>`;
+    const root = document.getElementById("a-root");
+    let busy = false;
+
+    async function act(action, payload) {
+      if (busy) return;
+      busy = true;
+      try {
+        await callApi(action, { admin_key: ADMIN_KEY, ...payload });
+      } catch (e) {
+        alert(e.message);
+      }
+      busy = false;
+      tick();
+    }
+
+    async function tick() {
+      let state;
+      try {
+        state = await fetchState("admin");
+      } catch (e) {
+        return;
+      }
+      render(state);
+    }
+
+    function render(state) {
+      const views = ["idle", "poll", "qna", "synthesis"];
+      const viewLabel = { idle: "대기", poll: "폴", qna: "Q&A", synthesis: "종합" };
+
+      const viewBtns = views.map((v) =>
+        `<button class="${v === state.session.active_view ? "active" : ""}" data-view="${v}">${viewLabel[v]}</button>`
+      ).join("");
+
+      const pollRows = (state.polls || []).map((p) => `
+        <div class="a-poll-row">
+          <div class="a-poll-q">[${p.type}] ${escapeHtml(p.question)}</div>
+          <div class="a-switch ${p.is_active ? "on" : ""}" data-toggle-poll="${p.id}" data-active="${p.is_active}"></div>
+        </div>`).join("") || `<div class="a-empty">등록된 폴이 없습니다.</div>`;
+
+      const reviewItems = (state.review_queue || []).map((q) => `
+        <div class="a-review-item">
+          <div class="a-review-body">${escapeHtml(q.nickname || "익명")}: ${escapeHtml(q.body)}</div>
+          <div class="a-review-actions">
+            <button class="a-btn ok" data-approve="${q.id}">승인</button>
+            <button class="a-btn danger" data-hide="${q.id}">숨김</button>
+          </div>
+        </div>`).join("") || `<div class="a-empty">대기 중인 질문이 없습니다.</div>`;
+
+      const liveItems = (state.live_questions || []).map((q) => `
+        <div class="a-review-item">
+          <div class="a-review-body">${escapeHtml(q.nickname || "익명")}: ${escapeHtml(q.body)} (♥${q.likes})</div>
+          <div class="a-review-actions">
+            <button class="a-btn danger" data-hide="${q.id}">숨김</button>
+          </div>
+        </div>`).join("") || `<div class="a-empty">자동승인된 질문이 없습니다.</div>`;
+
+      root.innerHTML = `
+        <div class="a-sticky"><div class="a-counters">
+          <div class="a-counter"><b>${state.counters.responded}</b><span>응답</span></div>
+          <div class="a-counter"><b>${state.counters.review_pending}</b><span>대기</span></div>
+        </div></div>
+
+        <div class="a-section"><h3>표출 화면</h3><div class="a-viewbtns">${viewBtns}</div></div>
+
+        <div class="a-section">
+          <div class="a-toggle-row"><h3 style="margin:0">AI 자동심사</h3>
+            <div class="a-switch ${state.ai_screening ? "on" : ""}" id="ai-toggle"></div></div>
+          <button class="a-full" id="do-synthesize">지금 종합하기</button>
+        </div>
+
+        <div class="a-section"><h3>폴 켜기/끄기</h3>${pollRows}</div>
+        <div class="a-section"><h3>검토 대기 (${(state.review_queue || []).length})</h3>${reviewItems}</div>
+        <div class="a-section"><h3>자동승인분 (원터치 숨김)</h3>${liveItems}</div>
+        <div class="a-section"><button class="a-full" id="do-export">CSV 내보내기</button></div>
+      `;
+
+      root.querySelectorAll("[data-view]").forEach((b) =>
+        b.addEventListener("click", () => act("admin_set_view", { session_id: state.session.id, view: b.dataset.view })));
+
+      root.querySelectorAll("[data-toggle-poll]").forEach((b) =>
+        b.addEventListener("click", () => act("admin_poll_toggle", {
+          poll_id: b.dataset.togglePoll, is_active: b.dataset.active !== "true",
+        })));
+
+      root.querySelectorAll("[data-approve]").forEach((b) =>
+        b.addEventListener("click", () => act("admin_question_status", { question_id: b.dataset.approve, status: "live" })));
+
+      root.querySelectorAll("[data-hide]").forEach((b) =>
+        b.addEventListener("click", () => act("admin_question_status", { question_id: b.dataset.hide, status: "hidden" })));
+
+      const aiToggle = document.getElementById("ai-toggle");
+      aiToggle.addEventListener("click", () =>
+        act("admin_ai_toggle", { session_id: state.session.id, ai_screening: !state.ai_screening }));
+
+      document.getElementById("do-synthesize").addEventListener("click", () =>
+        act("admin_synthesize", { session_id: state.session.id }));
+
+      document.getElementById("do-export").addEventListener("click", async () => {
+        const res = await fetch(`${FUNCTIONS_URL}/api`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "admin_export", admin_key: ADMIN_KEY, session_id: state.session.id }),
+        });
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `questions_${state.session.id}.csv`;
+        a.click();
+      });
+    }
+
+    tick();
+    setInterval(tick, 2000);
+  }
+})();
+</script>
+</body>
+</html>
