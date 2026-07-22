@@ -519,10 +519,17 @@
           const th = size * 1.18;
           const bw = vertical ? th : tw, bh = vertical ? tw : th;
 
-          // 아르키메데스 나선 (16:9라 세로를 눌러서 돈다). r가 화면 반폭(800)까지 커버되도록 성장
+          // 아르키메데스 나선 (16:9라 세로를 눌러서 돈다). r가 화면 반폭(800)까지 커버되도록 성장.
+          // 단어마다 시작 위상·회전 속도·방향을 무작위로 달리해, 다들 같은 곡선을 따라가며
+          // 줄 세운 듯 규칙적으로 쌓이는 것을 막고 간헐적·비정형으로 흩어지게 한다.
+          // (레이아웃은 데이터가 실제로 바뀔 때만 재계산되므로 매 폴링마다 흔들리지 않는다)
+          const phase = Math.random() * Math.PI * 2;
+          const dir = Math.random() < 0.5 ? 1 : -1;
+          const angSpeed = 0.22 + Math.random() * 0.2;
+          const radSpeed = 0.32 + Math.random() * 0.16;
           let x = 0, y = 0, ok = false;
           for (let t = 0; t < 2200; t += 1) {
-            const a = 0.3 * t + (h % 7), r = 0.4 * t;
+            const a = dir * angSpeed * t + phase, r = radSpeed * t;
             x = r * Math.cos(a);
             y = r * Math.sin(a) * 0.52;
             if (Math.abs(x) + bw / 2 > WC_W / 2 - 16 || Math.abs(y) + bh / 2 > WC_H / 2 - 12) continue;
@@ -662,7 +669,7 @@
         el.style.fill = p.color;
         el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) rotate(${p.vertical ? -90 : 0}deg)`;
         el.setAttribute("filter", `url(#${filterId})`);
-        const duration = 5 + Math.random() * 5;
+        const duration = (5 + Math.random() * 5) / 3; // 약 1.7~3.3초 (기존 5~10초의 1/3)
         el.style.transitionDuration = duration.toFixed(1) + "s";
         g.appendChild(el);
         requestAnimationFrame(() => requestAnimationFrame(() => { el.style.opacity = "0"; }));
