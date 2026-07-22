@@ -187,7 +187,7 @@
 
     const votedPolls = new Set();
     const likedQuestions = new Set();
-    let lastView = null;
+    let lastRenderKey = null;
 
     async function tick() {
       let state;
@@ -201,7 +201,29 @@
       renderGuest(state);
     }
 
-    function renderGuest(state) {
+    function renderGuest(state, force = false) {
+      // 화면에 영향 주는 상태가 그대로면 재렌더하지 않는다 (입력 중 내용 보호)
+      const renderKey = JSON.stringify([
+        state.session.active_view, state.active_poll, state.live_questions,
+        state.latest_synthesis, [...votedPolls],
+      ]);
+      if (!force && renderKey === lastRenderKey) return;
+      lastRenderKey = renderKey;
+
+      // 재렌더가 불가피할 때(질문 목록·집계 갱신 등)도 입력값·포커스는 보존
+      const preserveIds = ["poll-text", "ask-nick", "ask-body"];
+      const preserved = {};
+      let focusedId = null, focusedCursor = 0;
+      for (const id of preserveIds) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        preserved[id] = el.value;
+        if (document.activeElement === el) {
+          focusedId = id;
+          focusedCursor = el.selectionStart ?? 0;
+        }
+      }
+
       const view = state.session.active_view;
       const wrap = [`<div class="g-wrap"><div class="g-title">${escapeHtml(title)}</div>`];
 
@@ -218,8 +240,18 @@
 
       wrap.push(`</div>`);
       app.innerHTML = wrap.join("");
+
+      for (const [id, value] of Object.entries(preserved)) {
+        const el = document.getElementById(id);
+        if (!el || !value) continue;
+        el.value = value;
+        if (focusedId === id) {
+          el.focus();
+          if (el.setSelectionRange) el.setSelectionRange(focusedCursor, focusedCursor);
+        }
+      }
+
       bindGuestEvents(state);
-      lastView = view;
     }
 
     function renderPollCard(poll) {
