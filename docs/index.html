@@ -83,6 +83,10 @@
     will-change: transform;
   }
   #wc-svg text.wc-enter { opacity: 0; }
+  #wc-svg text.wc-fx {
+    pointer-events: none; opacity: 1;
+    transition-property: opacity; transition-timing-function: linear;
+  }
   @keyframes wc-pulse { 0%,100% { filter: url(#wc-glow-strong); } 50% { filter: url(#wc-glow); } }
   #wc-svg text.wc-top { animation: wc-pulse 3.2s ease-in-out infinite; }
   .s-qa-item { background: var(--panel); border-radius: 18px; padding: 24px 30px; margin-bottom: 20px;
@@ -551,6 +555,22 @@
                 <feGaussianBlur stdDeviation="14" result="b" />
                 <feMerge><feMergeNode in="b" /><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
+              <filter id="wc-chroma" x="-60%" y="-60%" width="220%" height="220%">
+                <feColorMatrix in="SourceGraphic" type="matrix"
+                  values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
+                <feOffset in="r" dx="-6" dy="1" result="rOff" />
+                <feColorMatrix in="SourceGraphic" type="matrix"
+                  values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="gc" />
+                <feColorMatrix in="SourceGraphic" type="matrix"
+                  values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
+                <feOffset in="b" dx="6" dy="-1" result="bOff" />
+                <feBlend in="rOff" in2="gc" mode="screen" result="rgc" />
+                <feBlend in="rgc" in2="bOff" mode="screen" />
+              </filter>
+              <filter id="wc-shadow" x="-40%" y="-40%" width="180%" height="180%">
+                <feDropShadow dx="2" dy="3" stdDeviation="1" flood-color="#000" flood-opacity="0.8" />
+                <feDropShadow dx="9" dy="13" stdDeviation="5" flood-color="#000" flood-opacity="0.6" />
+              </filter>
             </defs>
             <g id="wc-words"></g>
           </svg></div>`;
@@ -573,11 +593,15 @@
     function updateWordcloud(layout) {
       const g = document.getElementById("wc-words");
       const seen = new Set();
+      const changed = []; // 신규 등장 or 위치 이동 — 일시 효과 후보
       layout.forEach((p, rank) => {
         seen.add(p.word);
         let t = g.querySelector(`text[data-w="${CSS.escape(p.word)}"]`);
         const transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) rotate(${p.vertical ? -90 : 0}deg)`;
-        if (!t) {
+        const isNew = !t;
+        const isMoved = t && t.dataset.transform !== transform;
+        if (isNew || isMoved) changed.push(p);
+        if (isNew) {
           t = document.createElementNS("http://www.w3.org/2000/svg", "text");
           t.dataset.w = p.word;
           t.textContent = p.word;
@@ -591,6 +615,7 @@
         } else {
           t.style.transform = transform;
         }
+        t.dataset.transform = transform;
         t.style.fontSize = p.size + "px";
         t.style.fill = p.color;
         t.style.opacity = p.opacity;
@@ -598,12 +623,37 @@
         if (rank !== 0) t.setAttribute("filter", rank < 4 ? "url(#wc-glow)" : "");
         else t.removeAttribute("filter"); // 1위는 CSS pulse 애니메이션이 filter를 관리
       });
-      g.querySelectorAll("text").forEach((t) => {
+      g.querySelectorAll("text:not(.wc-fx)").forEach((t) => {
         if (!seen.has(t.dataset.w)) {
           t.style.opacity = "0";
           t.style.transform += " scale(0.2)";
           setTimeout(() => t.remove(), 700);
         }
+      });
+      spawnWcEffects(g, changed);
+    }
+
+    // 새로 나타나거나 위치가 바뀐 단어 중 일부에만, 잠깐 크로마틱 아베레이션/드롭섀도우를
+    // 덧씌웠다가 5~10초에 걸쳐 서서히 사라지게 한다 (재배치 순간을 강조하는 장식 효과).
+    function spawnWcEffects(g, candidates) {
+      if (!candidates.length) return;
+      const n = Math.min(candidates.length, 1 + Math.floor(Math.random() * 3));
+      const picked = candidates.slice().sort(() => Math.random() - 0.5).slice(0, n);
+      const kinds = ["url(#wc-chroma)", "url(#wc-shadow)"];
+      picked.forEach((p) => {
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        el.classList.add("wc-fx");
+        el.textContent = p.word;
+        el.style.fontSize = p.size + "px";
+        el.style.fontWeight = p.color === WC_TOP_COLOR ? 900 : 800;
+        el.style.fill = p.color;
+        el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) rotate(${p.vertical ? -90 : 0}deg)`;
+        el.setAttribute("filter", kinds[Math.floor(Math.random() * kinds.length)]);
+        const duration = 5 + Math.random() * 5;
+        el.style.transitionDuration = duration.toFixed(1) + "s";
+        g.appendChild(el);
+        requestAnimationFrame(() => requestAnimationFrame(() => { el.style.opacity = "0"; }));
+        setTimeout(() => el.remove(), duration * 1000 + 300);
       });
     }
 
