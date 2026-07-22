@@ -555,22 +555,6 @@
                 <feGaussianBlur stdDeviation="5" result="b" />
                 <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
-              <filter id="wc-chroma" x="-150%" y="-400%" width="400%" height="900%">
-                <feColorMatrix in="SourceGraphic" type="matrix"
-                  values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
-                <feOffset in="r" dx="-8" dy="1" result="rOff" />
-                <feColorMatrix in="SourceGraphic" type="matrix"
-                  values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="gc" />
-                <feColorMatrix in="SourceGraphic" type="matrix"
-                  values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
-                <feOffset in="b" dx="8" dy="-1" result="bOff" />
-                <feBlend in="rOff" in2="gc" mode="screen" result="rgc" />
-                <feBlend in="rgc" in2="bOff" mode="screen" />
-              </filter>
-              <filter id="wc-shadow" x="-150%" y="-500%" width="400%" height="1100%">
-                <feDropShadow dx="2" dy="3" stdDeviation="1" flood-color="#000" flood-opacity="0.85" />
-                <feDropShadow dx="6" dy="9" stdDeviation="4" flood-color="#000" flood-opacity="0.55" />
-              </filter>
               <filter id="wc-top-special" x="-120%" y="-250%" width="340%" height="600%">
                 <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="haloBlur" />
                 <feColorMatrix in="haloBlur" type="matrix"
@@ -644,10 +628,32 @@
     // 덧씌웠다가 5~10초에 걸쳐 서서히 사라지게 한다 (재배치 순간을 강조하는 장식 효과).
     function spawnWcEffects(g, candidates) {
       if (!candidates.length) return;
+      const defs = document.querySelector("#wc-svg defs");
       const n = Math.min(candidates.length, 1 + Math.floor(Math.random() * 3));
       const picked = candidates.slice().sort(() => Math.random() - 0.5).slice(0, n);
-      const kinds = ["url(#wc-chroma)", "url(#wc-shadow)"];
       picked.forEach((p) => {
+        // 글자가 작을수록(빽빽하게 배치된 흔한 경우) 오프셋도 같이 줄여 옆 단어를 덜 가리게 한다.
+        const scale = Math.min(1, p.size / 60);
+        const isChroma = Math.random() < 0.5;
+        const filterId = `wc-fx-${Math.random().toString(36).slice(2, 9)}`;
+        const filterEl = document.createElementNS("http://www.w3.org/2000/svg", "filter");
+        filterEl.setAttribute("id", filterId);
+        filterEl.setAttribute("x", "-150%");
+        filterEl.setAttribute("y", "-300%");
+        filterEl.setAttribute("width", "400%");
+        filterEl.setAttribute("height", "700%");
+        filterEl.innerHTML = isChroma
+          ? `<feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
+             <feOffset in="r" dx="${(-8 * scale).toFixed(1)}" dy="${(1 * scale).toFixed(1)}" result="rOff" />
+             <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="gc" />
+             <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
+             <feOffset in="b" dx="${(8 * scale).toFixed(1)}" dy="${(-1 * scale).toFixed(1)}" result="bOff" />
+             <feBlend in="rOff" in2="gc" mode="screen" result="rgc" />
+             <feBlend in="rgc" in2="bOff" mode="screen" />`
+          : `<feDropShadow dx="${(2 * scale).toFixed(1)}" dy="${(3 * scale).toFixed(1)}" stdDeviation="1" flood-color="#000" flood-opacity="0.85" />
+             <feDropShadow dx="${(6 * scale).toFixed(1)}" dy="${(9 * scale).toFixed(1)}" stdDeviation="${(4 * scale).toFixed(1)}" flood-color="#000" flood-opacity="0.5" />`;
+        defs.appendChild(filterEl);
+
         const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
         el.classList.add("wc-fx");
         el.textContent = p.word;
@@ -655,12 +661,12 @@
         el.style.fontWeight = p.color === WC_TOP_COLOR ? 900 : 800;
         el.style.fill = p.color;
         el.style.transform = `translate(${Math.round(p.x)}px, ${Math.round(p.y)}px) rotate(${p.vertical ? -90 : 0}deg)`;
-        el.setAttribute("filter", kinds[Math.floor(Math.random() * kinds.length)]);
+        el.setAttribute("filter", `url(#${filterId})`);
         const duration = 5 + Math.random() * 5;
         el.style.transitionDuration = duration.toFixed(1) + "s";
         g.appendChild(el);
         requestAnimationFrame(() => requestAnimationFrame(() => { el.style.opacity = "0"; }));
-        setTimeout(() => el.remove(), duration * 1000 + 300);
+        setTimeout(() => { el.remove(); filterEl.remove(); }, duration * 1000 + 300);
       });
     }
 
