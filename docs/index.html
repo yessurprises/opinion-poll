@@ -204,6 +204,12 @@
     }
 
     function renderGuest(state, force = false) {
+      // 입력 중에는 재렌더하지 않는다 — 커서·한글 조합(IME) 보호. 입력에서 나오면 다음 폴링에 갱신.
+      const ae = document.activeElement;
+      if (!force && ae && app.contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
+        return;
+      }
+
       // 화면에 영향 주는 상태가 그대로면 재렌더하지 않는다 (입력 중 내용 보호)
       const renderKey = JSON.stringify([
         state.session.active_view, state.active_poll, state.live_questions,
@@ -487,6 +493,7 @@
     app.innerHTML = `<div class="a-wrap" id="a-root"><div class="a-empty">불러오는 중…</div></div>`;
     const root = document.getElementById("a-root");
     let busy = false;
+    let lastRenderKey = null;
 
     async function act(action, payload) {
       if (busy) return false;
@@ -514,7 +521,19 @@
     }
 
     function render(state) {
-      // 2초 폴링 재렌더가 입력 중인 값을 지우지 않도록 값·포커스 보존
+      // 입력 중에는 재렌더하지 않는다 — 커서·한글 조합(IME)이 끊기는 것을 원천 차단.
+      // 입력에서 빠져나오면 다음 폴링(2초)에 자동 갱신된다.
+      const ae = document.activeElement;
+      if (ae && root.contains(ae) && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT")) {
+        return;
+      }
+
+      // 화면에 영향 주는 상태가 그대로면 재렌더 스킵
+      const renderKey = JSON.stringify(state);
+      if (renderKey === lastRenderKey) return;
+      lastRenderKey = renderKey;
+
+      // 재렌더 시에도 입력해뒀던 값은 보존 (입력 후 다른 곳을 탭한 경우)
       const preserveIds = ["manual-synth", "np-question", "np-options", "np-type"];
       const preserved = {};
       let focusedId = null, focusedCursor = 0;
