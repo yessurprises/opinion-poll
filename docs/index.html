@@ -84,7 +84,7 @@
   }
   #wc-svg text.wc-enter { opacity: 0; }
   #wc-svg text.wc-fx {
-    pointer-events: none; opacity: 1;
+    pointer-events: none; opacity: 0.8;
     transition-property: opacity; transition-timing-function: linear;
   }
   .s-qa-item { background: var(--panel); border-radius: 18px; padding: 24px 30px; margin-bottom: 20px;
@@ -176,6 +176,7 @@
   if (ROLE === "guest") runGuest();
   else if (ROLE === "screen") runScreen();
   else if (ROLE === "admin") runAdmin();
+  else if (ROLE === "admin-votes") runAdminVotes();
   else app.innerHTML = `<div class="g-wrap"><div class="a-err">알 수 없는 role: ${escapeHtml(ROLE)}</div></div>`;
 
   // ============================================================ guest
@@ -557,18 +558,25 @@
               <filter id="wc-chroma" x="-150%" y="-400%" width="400%" height="900%">
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
-                <feOffset in="r" dx="-11" dy="2" result="rOff" />
+                <feOffset in="r" dx="-8" dy="1" result="rOff" />
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="gc" />
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
-                <feOffset in="b" dx="11" dy="-2" result="bOff" />
+                <feOffset in="b" dx="8" dy="-1" result="bOff" />
                 <feBlend in="rOff" in2="gc" mode="screen" result="rgc" />
                 <feBlend in="rgc" in2="bOff" mode="screen" />
               </filter>
               <filter id="wc-shadow" x="-150%" y="-500%" width="400%" height="1100%">
-                <feDropShadow dx="3" dy="5" stdDeviation="1" flood-color="#000" flood-opacity="0.9" />
-                <feDropShadow dx="13" dy="19" stdDeviation="8" flood-color="#000" flood-opacity="0.75" />
+                <feDropShadow dx="2" dy="3" stdDeviation="1" flood-color="#000" flood-opacity="0.85" />
+                <feDropShadow dx="6" dy="9" stdDeviation="4" flood-color="#000" flood-opacity="0.55" />
+              </filter>
+              <filter id="wc-top-special" x="-120%" y="-250%" width="340%" height="600%">
+                <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="haloBlur" />
+                <feColorMatrix in="haloBlur" type="matrix"
+                  values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.5 0" result="halo" />
+                <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.3" result="shadow" />
+                <feMerge><feMergeNode in="halo" /><feMergeNode in="shadow" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
             </defs>
             <g id="wc-words"></g>
@@ -618,8 +626,8 @@
         t.style.fontSize = p.size + "px";
         t.style.fill = p.color;
         t.style.opacity = p.opacity;
-        // 1위는 밝은 색상만으로 강조하고 글로우는 넣지 않는다 (번짐이 지저분해 보여서 제외)
-        if (rank !== 0 && rank < 4) t.setAttribute("filter", "url(#wc-glow)");
+        if (rank === 0) t.setAttribute("filter", "url(#wc-top-special)"); // 1위 전용: 절제된 정적 오라(펄스 애니메이션 아님)
+        else if (rank < 4) t.setAttribute("filter", "url(#wc-glow)");
         else t.removeAttribute("filter");
       });
       g.querySelectorAll("text:not(.wc-fx)").forEach((t) => {
@@ -768,20 +776,6 @@
           </div>
         </div>`).join("") || `<div class="a-empty">대기 중인 질문이 없습니다.</div>`;
 
-      const activePollType = state.active_poll?.type;
-      const voteItems = (state.active_poll_votes || []).map((v) => {
-        const text = activePollType === "choice"
-          ? String((v.value && v.value.option) ?? v.value)
-          : String((v.value && v.value.text) ?? v.value);
-        return `
-        <div class="a-review-item">
-          <div class="a-review-body">${escapeHtml(text)}</div>
-          <div class="a-review-actions">
-            <button class="a-btn danger" data-del-vote="${v.id}">삭제</button>
-          </div>
-        </div>`;
-      }).join("") || `<div class="a-empty">${state.active_poll ? "아직 응답이 없습니다." : "활성 폴이 없습니다."}</div>`;
-
       const liveItems = (state.live_questions || []).map((q) => `
         <div class="a-review-item">
           <div class="a-review-body">${escapeHtml(q.nickname || "익명")}: ${escapeHtml(q.body)} (♥${q.likes})</div>
@@ -826,7 +820,12 @@
         </div>
 
         <div class="a-section"><h3>폴 켜기/끄기</h3>${pollRows}</div>
-        <div class="a-section"><h3>현재 폴 응답 관리 (${(state.active_poll_votes || []).length})</h3>${voteItems}</div>
+        <div class="a-section">
+          <h3>응답 관리</h3>
+          <div class="g-note" style="margin-bottom:8px">현재 폴 응답 ${(state.active_poll_votes || []).length}건 — 목록·삭제는 별도 창에서</div>
+          <a class="a-full" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box"
+            href="?role=admin-votes&admin_key=${encodeURIComponent(ADMIN_KEY)}" target="_blank" rel="noopener">응답 관리 열기 ↗</a>
+        </div>
         <div class="a-section"><h3>검토 대기 (${(state.review_queue || []).length})</h3>${reviewItems}</div>
         <div class="a-section"><h3>자동승인분 (원터치 숨김)</h3>${liveItems}</div>
         <div class="a-section"><button class="a-full" id="do-export">CSV 내보내기</button></div>
@@ -883,9 +882,6 @@
           act("admin_poll_delete", { poll_id: b.dataset.delPoll });
         }));
 
-      root.querySelectorAll("[data-del-vote]").forEach((b) =>
-        b.addEventListener("click", () => act("admin_vote_delete", { vote_id: b.dataset.delVote })));
-
       root.querySelectorAll("[data-approve]").forEach((b) =>
         b.addEventListener("click", () => act("admin_question_status", { question_id: b.dataset.approve, status: "live" })));
 
@@ -924,6 +920,77 @@
         a.download = `questions_${state.session.id}.csv`;
         a.click();
       });
+    }
+
+    tick();
+    setInterval(tick, 2000);
+  }
+
+  // ============================================================ admin-votes (별도 창)
+  // 응답 원터치 삭제 전용 화면. 메인 admin 대시보드는 매 폴링마다 통째로 재렌더되므로
+  // 응답이 수백 건이면 그 목록을 거기 끼워넣지 않고 이 창을 분리해서 연다.
+  async function runAdminVotes() {
+    if (!ADMIN_KEY) {
+      app.innerHTML = `<div class="a-wrap"><div class="a-err">admin_key가 없습니다.</div></div>`;
+      return;
+    }
+    app.innerHTML = `<div class="a-wrap" id="av-root"><div class="a-empty">불러오는 중…</div></div>`;
+    const root = document.getElementById("av-root");
+    let busy = false;
+    let lastKey = null;
+
+    async function del(voteId) {
+      if (busy) return;
+      busy = true;
+      try {
+        await callApi("admin_vote_delete", { admin_key: ADMIN_KEY, vote_id: voteId });
+      } catch (e) {
+        alert(e.message);
+      }
+      busy = false;
+      lastKey = null; // 삭제 직후엔 렌더 스킵 없이 바로 갱신
+      tick();
+    }
+
+    function render(state) {
+      const votes = state.active_poll_votes || [];
+      const type = state.active_poll?.type;
+      const key = JSON.stringify(votes.map((v) => v.id));
+      if (key === lastKey) return;
+      lastKey = key;
+
+      const items = votes.map((v) => {
+        const text = type === "choice"
+          ? String((v.value && v.value.option) ?? v.value)
+          : String((v.value && v.value.text) ?? v.value);
+        return `
+        <div class="a-review-item">
+          <div class="a-review-body">${escapeHtml(text)}</div>
+          <div class="a-review-actions">
+            <button class="a-btn danger" data-del="${v.id}">삭제</button>
+          </div>
+        </div>`;
+      }).join("") || `<div class="a-empty">${state.active_poll ? "아직 응답이 없습니다." : "활성 폴이 없습니다."}</div>`;
+
+      root.innerHTML = `
+        <div class="a-sticky">
+          <h3 style="margin:0 0 4px">응답 관리</h3>
+          <div class="g-note">${escapeHtml(state.active_poll?.question || "활성 폴 없음")} — ${votes.length}건</div>
+        </div>
+        <div class="a-section">${items}</div>
+      `;
+      root.querySelectorAll("[data-del]").forEach((b) =>
+        b.addEventListener("click", () => del(b.dataset.del)));
+    }
+
+    async function tick() {
+      let state;
+      try {
+        state = await fetchState("admin");
+      } catch {
+        return;
+      }
+      render(state);
     }
 
     tick();
