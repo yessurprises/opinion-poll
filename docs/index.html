@@ -549,21 +549,21 @@
                 <feGaussianBlur stdDeviation="5" result="b" />
                 <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
-              <filter id="wc-chroma" x="-60%" y="-60%" width="220%" height="220%">
+              <filter id="wc-chroma" x="-150%" y="-400%" width="400%" height="900%">
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
-                <feOffset in="r" dx="-6" dy="1" result="rOff" />
+                <feOffset in="r" dx="-11" dy="2" result="rOff" />
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="gc" />
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b" />
-                <feOffset in="b" dx="6" dy="-1" result="bOff" />
+                <feOffset in="b" dx="11" dy="-2" result="bOff" />
                 <feBlend in="rOff" in2="gc" mode="screen" result="rgc" />
                 <feBlend in="rgc" in2="bOff" mode="screen" />
               </filter>
-              <filter id="wc-shadow" x="-40%" y="-40%" width="180%" height="180%">
-                <feDropShadow dx="2" dy="3" stdDeviation="1" flood-color="#000" flood-opacity="0.8" />
-                <feDropShadow dx="9" dy="13" stdDeviation="5" flood-color="#000" flood-opacity="0.6" />
+              <filter id="wc-shadow" x="-150%" y="-500%" width="400%" height="1100%">
+                <feDropShadow dx="3" dy="5" stdDeviation="1" flood-color="#000" flood-opacity="0.9" />
+                <feDropShadow dx="13" dy="19" stdDeviation="8" flood-color="#000" flood-opacity="0.75" />
               </filter>
             </defs>
             <g id="wc-words"></g>
@@ -763,6 +763,20 @@
           </div>
         </div>`).join("") || `<div class="a-empty">대기 중인 질문이 없습니다.</div>`;
 
+      const activePollType = state.active_poll?.type;
+      const voteItems = (state.active_poll_votes || []).map((v) => {
+        const text = activePollType === "choice"
+          ? String((v.value && v.value.option) ?? v.value)
+          : String((v.value && v.value.text) ?? v.value);
+        return `
+        <div class="a-review-item">
+          <div class="a-review-body">${escapeHtml(text)}</div>
+          <div class="a-review-actions">
+            <button class="a-btn danger" data-del-vote="${v.id}">삭제</button>
+          </div>
+        </div>`;
+      }).join("") || `<div class="a-empty">${state.active_poll ? "아직 응답이 없습니다." : "활성 폴이 없습니다."}</div>`;
+
       const liveItems = (state.live_questions || []).map((q) => `
         <div class="a-review-item">
           <div class="a-review-body">${escapeHtml(q.nickname || "익명")}: ${escapeHtml(q.body)} (♥${q.likes})</div>
@@ -807,6 +821,7 @@
         </div>
 
         <div class="a-section"><h3>폴 켜기/끄기</h3>${pollRows}</div>
+        <div class="a-section"><h3>현재 폴 응답 관리 (${(state.active_poll_votes || []).length})</h3>${voteItems}</div>
         <div class="a-section"><h3>검토 대기 (${(state.review_queue || []).length})</h3>${reviewItems}</div>
         <div class="a-section"><h3>자동승인분 (원터치 숨김)</h3>${liveItems}</div>
         <div class="a-section"><button class="a-full" id="do-export">CSV 내보내기</button></div>
@@ -862,6 +877,9 @@
           if (!window.confirm("이 폴과 응답 데이터를 모두 삭제할까요?")) return;
           act("admin_poll_delete", { poll_id: b.dataset.delPoll });
         }));
+
+      root.querySelectorAll("[data-del-vote]").forEach((b) =>
+        b.addEventListener("click", () => act("admin_vote_delete", { vote_id: b.dataset.delVote })));
 
       root.querySelectorAll("[data-approve]").forEach((b) =>
         b.addEventListener("click", () => act("admin_question_status", { question_id: b.dataset.approve, status: "live" })));

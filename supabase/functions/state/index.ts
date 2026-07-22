@@ -54,6 +54,7 @@ Deno.serve(async (req: Request) => {
     if (!session) return errorResponse("session not found", 404);
 
     let activePoll: Record<string, unknown> | null = null;
+    let activePollVotes: { id: string; value: unknown; created_at: string }[] = [];
     if (session.active_poll_id) {
       const { data: poll, error: pollErr } = await supabase
         .from("polls")
@@ -64,8 +65,9 @@ Deno.serve(async (req: Request) => {
       if (poll) {
         const { data: votes, error: votesErr } = await supabase
           .from("votes")
-          .select("value")
-          .eq("poll_id", poll.id);
+          .select("id, value, created_at")
+          .eq("poll_id", poll.id)
+          .order("created_at", { ascending: false });
         if (votesErr) throw votesErr;
 
         let results: unknown;
@@ -74,6 +76,10 @@ Deno.serve(async (req: Request) => {
         else results = { opinion_count: (votes ?? []).length };
 
         activePoll = { ...poll, results, total_votes: (votes ?? []).length };
+        if (role === "admin") {
+          // 관리자 화면에서 개별 응답을 원터치로 삭제할 수 있도록 원본 목록도 함께 내려준다.
+          activePollVotes = (votes ?? []).map((v) => ({ id: v.id, value: v.value, created_at: v.created_at }));
+        }
       }
     }
 
@@ -134,6 +140,7 @@ Deno.serve(async (req: Request) => {
       responseBody.ai_synthesis = session.ai_synthesis;
       responseBody.review_queue = reviewQueue ?? [];
       responseBody.polls = allPolls ?? [];
+      responseBody.active_poll_votes = activePollVotes;
       responseBody.counters = {
         responded: respondedCount ?? 0,
         review_pending: (reviewQueue ?? []).length,

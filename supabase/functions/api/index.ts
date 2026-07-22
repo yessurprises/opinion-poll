@@ -207,6 +207,16 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ ok: true });
       }
 
+      case "admin_vote_delete": {
+        // 개별 응답(선택형 표·워드클라우드 단어·자유의견) 원터치 삭제 — 부적절한 응답 대응용
+        if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
+        const { vote_id } = body as { vote_id?: string };
+        if (!vote_id) return errorResponse("missing vote_id", 400);
+        const { error } = await supabase.from("votes").delete().eq("id", vote_id);
+        if (error) throw error;
+        return jsonResponse({ ok: true });
+      }
+
       case "admin_poll_toggle": {
         if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
         const { poll_id, is_active } = body as { poll_id?: string; is_active?: boolean };
