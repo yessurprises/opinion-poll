@@ -474,11 +474,19 @@
     }
 
     function render(state) {
-      // 2초 폴링 재렌더가 수기 종합문 입력을 지우지 않도록 값·포커스 보존
-      const prevManual = document.getElementById("manual-synth");
-      const manualValue = prevManual ? prevManual.value : "";
-      const manualFocused = prevManual && document.activeElement === prevManual;
-      const manualCursor = manualFocused ? prevManual.selectionStart : 0;
+      // 2초 폴링 재렌더가 입력 중인 값을 지우지 않도록 값·포커스 보존
+      const preserveIds = ["manual-synth", "np-question", "np-options", "np-type"];
+      const preserved = {};
+      let focusedId = null, focusedCursor = 0;
+      for (const id of preserveIds) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        preserved[id] = el.value;
+        if (document.activeElement === el) {
+          focusedId = id;
+          focusedCursor = el.selectionStart ?? 0;
+        }
+      }
 
       const views = ["idle", "poll", "qna", "synthesis"];
       const viewLabel = { idle: "대기", poll: "폴", qna: "Q&A", synthesis: "종합" };
@@ -487,9 +495,11 @@
         `<button class="${v === state.session.active_view ? "active" : ""}" data-view="${v}">${viewLabel[v]}</button>`
       ).join("");
 
+      const typeLabel = { choice: "선택형", wordcloud: "워드클라우드", open: "자유의견" };
       const pollRows = (state.polls || []).map((p) => `
         <div class="a-poll-row">
-          <div class="a-poll-q">[${p.type}] ${escapeHtml(p.question)}</div>
+          <div class="a-poll-q">[${typeLabel[p.type] || p.type}] ${escapeHtml(p.question)}</div>
+          <button class="a-btn danger" data-del-poll="${p.id}" style="margin-right:8px">삭제</button>
           <div class="a-switch ${p.is_active ? "on" : ""}" data-toggle-poll="${p.id}" data-active="${p.is_active}"></div>
         </div>`).join("") || `<div class="a-empty">등록된 폴이 없습니다.</div>`;
 
@@ -532,20 +542,41 @@
           <button class="a-full" id="do-manual-synth" style="margin-top:8px">수기 종합 게시</button>
         </div>
 
+        <div class="a-section">
+          <h3>새 폴 만들기</h3>
+          <select class="g-input" id="np-type" style="margin-bottom:8px">
+            <option value="choice">선택형 (보기 중 하나)</option>
+            <option value="wordcloud">워드클라우드 (한 단어)</option>
+            <option value="open">자유의견 (AI 종합 대상)</option>
+          </select>
+          <input class="g-input" id="np-question" placeholder="문항 (예: 오늘 세션 만족도는?)" maxlength="200" style="margin-bottom:8px" />
+          <textarea class="g-input" id="np-options" rows="4" placeholder="보기 목록 — 한 줄에 하나씩, 2~10개 (선택형만)"></textarea>
+          <button class="a-full" id="np-create" style="margin-top:8px">폴 만들기</button>
+          <div class="g-note" id="np-msg"></div>
+        </div>
+
         <div class="a-section"><h3>폴 켜기/끄기</h3>${pollRows}</div>
         <div class="a-section"><h3>검토 대기 (${(state.review_queue || []).length})</h3>${reviewItems}</div>
         <div class="a-section"><h3>자동승인분 (원터치 숨김)</h3>${liveItems}</div>
         <div class="a-section"><button class="a-full" id="do-export">CSV 내보내기</button></div>
       `;
 
-      const manualEl = document.getElementById("manual-synth");
-      if (manualEl && manualValue) {
-        manualEl.value = manualValue;
-        if (manualFocused) {
-          manualEl.focus();
-          manualEl.setSelectionRange(manualCursor, manualCursor);
+      for (const [id, value] of Object.entries(preserved)) {
+        const el = document.getElementById(id);
+        if (!el || !value) continue;
+        el.value = value;
+        if (focusedId === id) {
+          el.focus();
+          if (el.setSelectionRange && el.type !== "select-one") el.setSelectionRange(focusedCursor, focusedCursor);
         }
       }
+
+      // 선택형이 아니면 보기 입력란 숨김
+      const npType = document.getElementById("np-type");
+      const npOptions = document.getElementById("np-options");
+      const syncOptionsVisibility = () => { npOptions.style.display = npType.value === "choice" ? "" : "none"; };
+      syncOptionsVisibility();
+      npType.addEventListener("change", syncOptionsVisibility);
 
       root.querySelectorAll("[data-view]").forEach((b) =>
         b.addEventListener("click", () => act("admin_set_view", { session_id: state.session.id, view: b.dataset.view })));
@@ -554,6 +585,32 @@
         b.addEventListener("click", () => act("admin_poll_toggle", {
           poll_id: b.dataset.togglePoll, is_active: b.dataset.active !== "true",
         })));
+
+      document.getElementById("np-create").addEventListener("click", async () => {
+        const type = npType.value;
+        const question = document.getElementById("np-question").value.trim();
+        const msgEl = document.getElementById("np-msg");
+        if (!question) { msgEl.textContent = "문항을 입력하세요."; return; }
+        const options = type === "choice"
+          ? npOptions.value.split("\n").map((l) => l.trim()).filter(Boolean)
+          : [];
+        if (type === "choice" && options.length < 2) { msgEl.textContent = "보기를 2개 이상 입력하세요 (한 줄에 하나씩)."; return; }
+        msgEl.textContent = "만드는 중…";
+        if (await act("admin_poll_create", { session_id: state.session.id, type, question, options })) {
+          const qEl = document.getElementById("np-question");
+          const oEl = document.getElementById("np-options");
+          if (qEl) qEl.value = "";
+          if (oEl) oEl.value = "";
+          const m = document.getElementById("np-msg");
+          if (m) m.textContent = "폴이 생성되었습니다. 아래 목록에서 켜면 표출됩니다.";
+        }
+      });
+
+      root.querySelectorAll("[data-del-poll]").forEach((b) =>
+        b.addEventListener("click", () => {
+          if (!window.confirm("이 폴과 응답 데이터를 모두 삭제할까요?")) return;
+          act("admin_poll_delete", { poll_id: b.dataset.delPoll });
+        }));
 
       root.querySelectorAll("[data-approve]").forEach((b) =>
         b.addEventListener("click", () => act("admin_question_status", { question_id: b.dataset.approve, status: "live" })));

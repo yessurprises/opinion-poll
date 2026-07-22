@@ -132,6 +132,57 @@ Deno.serve(async (req: Request) => {
         return jsonResponse({ ok: true });
       }
 
+      case "admin_poll_create": {
+        if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
+        const { session_id, type, question, options } = body as {
+          session_id?: string;
+          type?: string;
+          question?: string;
+          options?: unknown;
+        };
+        if (!session_id) return errorResponse("missing session_id", 400);
+        if (!type || !["choice", "wordcloud", "open"].includes(type)) {
+          return errorResponse("type은 choice/wordcloud/open 중 하나여야 합니다", 400);
+        }
+        const q = String(question ?? "").trim().slice(0, 200);
+        if (!q) return errorResponse("문항을 입력하세요", 400);
+
+        let opts: string[] = [];
+        if (type === "choice") {
+          if (!Array.isArray(options)) return errorResponse("choice 폴은 보기 목록이 필요합니다", 400);
+          opts = options.map((o) => String(o).trim().slice(0, 50)).filter(Boolean);
+          opts = [...new Set(opts)]; // 중복 보기 제거
+          if (opts.length < 2) return errorResponse("보기는 2개 이상이어야 합니다", 400);
+          if (opts.length > 10) return errorResponse("보기는 10개 이하여야 합니다", 400);
+        }
+
+        const { data: session, error: sessionErr } = await supabase
+          .from("sessions")
+          .select("id")
+          .eq("id", session_id)
+          .maybeSingle();
+        if (sessionErr) throw sessionErr;
+        if (!session) return errorResponse("session not found", 404);
+
+        const { data: poll, error } = await supabase
+          .from("polls")
+          .insert({ session_id, type, question: q, options: opts })
+          .select("id")
+          .single();
+        if (error) throw error;
+        return jsonResponse({ id: poll.id });
+      }
+
+      case "admin_poll_delete": {
+        if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
+        const { poll_id } = body as { poll_id?: string };
+        if (!poll_id) return errorResponse("missing poll_id", 400);
+        // votes는 FK on delete cascade로 함께 삭제, 활성 폴이었다면 active_poll_id는 set null
+        const { error } = await supabase.from("polls").delete().eq("id", poll_id);
+        if (error) throw error;
+        return jsonResponse({ ok: true });
+      }
+
       case "admin_poll_toggle": {
         if (!checkAdminKey(req, body)) return errorResponse("unauthorized", 401);
         const { poll_id, is_active } = body as { poll_id?: string; is_active?: boolean };
