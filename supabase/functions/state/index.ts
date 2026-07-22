@@ -21,7 +21,9 @@ function aggregateWordcloud(votes: { value: unknown }[]): { word: string; count:
   }
   return Object.entries(counts)
     .map(([word, count]) => ({ word, count }))
-    .sort((a, b) => b.count - a.count)
+    // count 동률일 때 DB 조회 순서(비결정적)에 기대지 않도록 단어 사전순을 2차 기준으로 고정.
+    // 그래야 투표 데이터가 그대로면 폴링마다 결과 배열이 완전히 동일해 화면이 불필요하게 재배치되지 않는다.
+    .sort((a, b) => b.count - a.count || a.word.localeCompare(b.word))
     .slice(0, 50);
 }
 
