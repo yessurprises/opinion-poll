@@ -87,8 +87,6 @@
     pointer-events: none; opacity: 1;
     transition-property: opacity; transition-timing-function: linear;
   }
-  @keyframes wc-pulse { 0%,100% { filter: url(#wc-glow-strong); } 50% { filter: url(#wc-glow); } }
-  #wc-svg text.wc-top { animation: wc-pulse 3.2s ease-in-out infinite; }
   .s-qa-item { background: var(--panel); border-radius: 18px; padding: 24px 30px; margin-bottom: 20px;
     display: flex; justify-content: space-between; align-items: center; gap: 20px; }
   .s-qa-body { font-size: 34px; line-height: 1.4; }
@@ -551,10 +549,6 @@
                 <feGaussianBlur stdDeviation="5" result="b" />
                 <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
-              <filter id="wc-glow-strong" x="-60%" y="-60%" width="220%" height="220%">
-                <feGaussianBlur stdDeviation="14" result="b" />
-                <feMerge><feMergeNode in="b" /><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-              </filter>
               <filter id="wc-chroma" x="-60%" y="-60%" width="220%" height="220%">
                 <feColorMatrix in="SourceGraphic" type="matrix"
                   values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r" />
@@ -619,9 +613,9 @@
         t.style.fontSize = p.size + "px";
         t.style.fill = p.color;
         t.style.opacity = p.opacity;
-        t.classList.toggle("wc-top", rank === 0);
-        if (rank !== 0) t.setAttribute("filter", rank < 4 ? "url(#wc-glow)" : "");
-        else t.removeAttribute("filter"); // 1위는 CSS pulse 애니메이션이 filter를 관리
+        // 1위는 밝은 색상만으로 강조하고 글로우는 넣지 않는다 (번짐이 지저분해 보여서 제외)
+        if (rank !== 0 && rank < 4) t.setAttribute("filter", "url(#wc-glow)");
+        else t.removeAttribute("filter");
       });
       g.querySelectorAll("text:not(.wc-fx)").forEach((t) => {
         if (!seen.has(t.dataset.w)) {
