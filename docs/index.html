@@ -496,12 +496,12 @@
           const th = size * 1.18;
           const bw = vertical ? th : tw, bh = vertical ? tw : th;
 
-          // 아르키메데스 나선 (16:9라 세로를 눌러서 돈다)
+          // 아르키메데스 나선 (16:9라 세로를 눌러서 돈다). r가 화면 반폭(800)까지 커버되도록 성장
           let x = 0, y = 0, ok = false;
           for (let t = 0; t < 2200; t += 1) {
-            const a = 0.28 * t, r = 2.6 * a / (2 * Math.PI);
-            x = r * Math.cos(a + h % 7);
-            y = r * Math.sin(a + h % 7) * 0.52;
+            const a = 0.3 * t + (h % 7), r = 0.4 * t;
+            x = r * Math.cos(a);
+            y = r * Math.sin(a) * 0.52;
             if (Math.abs(x) + bw / 2 > WC_W / 2 - 16 || Math.abs(y) + bh / 2 > WC_H / 2 - 12) continue;
             let hit = false;
             for (const p of placed) {
