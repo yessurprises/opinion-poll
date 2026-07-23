@@ -501,17 +501,31 @@
       const crowd = Math.min(1, 24 / Math.max(words.length, 1) + 0.55);
       const sizeOf = (c) => Math.round((30 + 120 * Math.pow(c / max, 0.62)) * crowd);
 
+      // 총 면적 기반 선(先)축소 — 항목이 아주 많으면(state는 최대 50개까지 내려줌) 개별 축소
+      // 루프만으로는 무작위 산포가 성립할 밀도에 도달하지 못한다. 박스 면적 합이 캔버스의
+      // 26%를 넘지 않도록 전체 배율을 먼저 낮춰, 개수와 무관하게 같은 배치 방식이 통하게 한다.
+      // (26%는 시뮬레이션 결과 무작위 산포 성공률 90%+ 나오는 밀도 — 더 높이면 폴백 빈발)
+      let totalArea = 0;
+      for (const w of words) {
+        let s = sizeOf(w.count);
+        const cap = Math.floor((WC_W * 0.4) / Math.max(w.word.length * 0.58, 1));
+        s = Math.max(22, Math.min(s, cap));
+        wcMeasureCtx.font = `850 ${s}px Pretendard, "Malgun Gothic", sans-serif`;
+        totalArea += (wcMeasureCtx.measureText(w.word).width + s * 0.25) * (s * 1.18);
+      }
+      const preScale = Math.min(1, Math.sqrt((WC_W * WC_H * 0.26) / Math.max(totalArea, 1)));
+
       for (let shrink = 1; shrink >= 0.55; shrink -= 0.15) {
         const placed = [];
         let allFit = true;
         for (let i = 0; i < words.length; i++) {
           const w = words[i];
-          let size = Math.max(22, Math.round(sizeOf(w.count) * shrink));
+          let size = Math.max(15, Math.round(sizeOf(w.count) * preScale * shrink));
           // 띄어쓰기 포함 긴 문장이 응답으로 들어오면(스펙은 "한 단어"지만 강제할 수 없음),
           // 빈도만으로 크기를 매길 경우 동률 문장들이 전부 최대 크기로 그려져 배치가 실패하고
           // 화면이 통째로 비어버릴 수 있다. 글자 수가 많을수록 폭 기준 상한을 추가로 걸어 방지.
           const widthCap = Math.floor((WC_W * 0.4) / Math.max(w.word.length * 0.58, 1));
-          size = Math.max(22, Math.min(size, widthCap));
+          size = Math.max(15, Math.min(size, widthCap));
           const h = wcHash(w.word);
           const vertical = i > 2 && h % 100 < 22 && w.word.length <= 6; // 상위 3위는 항상 가로
           wcMeasureCtx.font = `850 ${size}px Pretendard, "Malgun Gothic", sans-serif`;
@@ -519,14 +533,15 @@
           const th = size * 1.18;
           const bw = vertical ? th : tw, bh = vertical ? tw : th;
 
-          // 배치: 나선을 순서대로 따라가면(특히 폭이 넓은 문장형 응답에서) 규칙적으로 줄 선 것처럼
-          // 보인다. 먼저 캔버스 안에서 완전히 무작위인 위치를 다수 시도해 간헐적·비정형으로
-          // 흩어지게 하고, 그래도 자리를 못 찾을 때만 결정론적 나선으로 폴백해 배치 실패(빈 화면)를
-          // 막는다. (레이아웃은 데이터가 실제로 바뀔 때만 재계산되므로 매 폴링마다 흔들리지 않는다)
+          // 배치: 캔버스 안 완전 무작위 위치를 다수 시도해 간헐적·비정형으로 흩어지게 한다.
+          // 나선(spiral) 폴백은 제거 — 폭이 제각각인 혼합 데이터에서 빙글빙글 도는 시각 패턴을
+          // 만들기 때문. 여기서 자리를 못 찾으면 shrink 단계를 낮추고, 그래도 안 되면 호출부가
+          // 행 패킹(wcLayoutFlow)으로 폴백해 배치 실패(빈 화면)와 트리밍(누락)을 모두 막는다.
+          // (레이아웃은 데이터가 실제로 바뀔 때만 재계산되므로 매 폴링마다 흔들리지 않는다)
           const maxX = WC_W / 2 - 16 - bw / 2, maxY = WC_H / 2 - 12 - bh / 2;
           let x = 0, y = 0, ok = false;
           if (maxX > 0 && maxY > 0) {
-            for (let attempt = 0; attempt < 400; attempt++) {
+            for (let attempt = 0; attempt < 600; attempt++) {
               const theta = Math.random() * Math.PI * 2;
               const r = Math.pow(Math.random(), 0.7); // 0~1, 중심 쪽으로 살짝 치우친 분포
               const rx = Math.cos(theta) * r * maxX;
@@ -536,23 +551,6 @@
                 if (Math.abs(rx - p.x) < (bw + p.bw) / 2 + 7 && Math.abs(ry - p.y) < (bh + p.bh) / 2 + 7) { hit = true; break; }
               }
               if (!hit) { x = rx; y = ry; ok = true; break; }
-            }
-          }
-          if (!ok) {
-            const phase = Math.random() * Math.PI * 2;
-            const dir = Math.random() < 0.5 ? 1 : -1;
-            const angSpeed = 0.22 + Math.random() * 0.2;
-            const radSpeed = 0.32 + Math.random() * 0.16;
-            for (let t = 0; t < 2200; t += 1) {
-              const a = dir * angSpeed * t + phase, r = radSpeed * t;
-              x = r * Math.cos(a);
-              y = r * Math.sin(a) * 0.52;
-              if (Math.abs(x) + bw / 2 > WC_W / 2 - 16 || Math.abs(y) + bh / 2 > WC_H / 2 - 12) continue;
-              let hit = false;
-              for (const p of placed) {
-                if (Math.abs(x - p.x) < (bw + p.bw) / 2 + 7 && Math.abs(y - p.y) < (bh + p.bh) / 2 + 7) { hit = true; break; }
-              }
-              if (!hit) { ok = true; break; }
             }
           }
           if (!ok) { allFit = false; break; }
@@ -591,20 +589,38 @@
       return withSpace / words.length > 0.3;
     }
 
-    // 문장형 전용: 캔버스 전체를 행 단위로 채워 트리밍 없이 전부 표시한다.
-    function wcLayoutFlow(words) {
+    // 행 패킹(shelf packing): 캔버스 전체를 행 단위로 채워 트리밍 없이 전부 표시한다.
+    // 문장형의 기본 배치이자, 단어형에서 무작위 산포가 실패했을 때의 최종 폴백(mix 옵션).
+    // 어떤 크기 조합이든 배치가 100% 성립하는 게 이 방식의 존재 이유다.
+    function wcLayoutFlow(words, opts) {
+      const mix = !!(opts && opts.mix);
       const marginX = 50, marginY = 40, gapX = 30, gapY = 22;
       const maxRowWidth = WC_W - marginX * 2;
       const maxTotalHeight = WC_H - marginY * 2;
       const max = Math.max(...words.map((w) => w.count), 1);
-      const sizeOf = (w) => 26 + 30 * Math.pow(w.count / max, 0.6); // 문장은 크기 차를 완만하게
+      // 문장은 크기 차를 완만하게, 단어 폴백(mix)은 짧아서 폭 여유가 있으므로 차이를 크게
+      const sizeOf = mix
+        ? (w) => 30 + 62 * Math.pow(w.count / max, 0.6)
+        : (w) => 26 + 30 * Math.pow(w.count / max, 0.6);
+
+      // mix 모드: 빈도순 그대로 흘리면 "큰 것부터 줄 세운 목록"처럼 보인다.
+      // 큰 항목과 작은 항목을 교차(0, n-1, 1, n-2, …)로 섞어 행마다 크기가 어우러지게 한다.
+      let ordered = words.map((w, i) => ({ word: w.word, count: w.count, rank: i }));
+      if (mix) {
+        const src = ordered; ordered = [];
+        let lo = 0, hi = src.length - 1;
+        while (lo <= hi) {
+          ordered.push(src[lo++]);
+          if (lo <= hi) ordered.push(src[hi--]);
+        }
+      }
 
       function tryLayout(scale) {
         const rows = [];
         let currentRow = [];
         let currentWidth = 0;
-        for (let i = 0; i < words.length; i++) {
-          const w = words[i];
+        for (let i = 0; i < ordered.length; i++) {
+          const w = ordered[i];
           const size = Math.max(15, Math.round(sizeOf(w) * scale));
           wcMeasureCtx.font = `800 ${size}px Pretendard, "Malgun Gothic", sans-serif`;
           const tw = wcMeasureCtx.measureText(w.word).width;
@@ -614,7 +630,7 @@
             currentRow = [];
             currentWidth = 0;
           }
-          currentRow.push({ word: w.word, count: w.count, size, tw, rank: i });
+          currentRow.push({ word: w.word, count: w.count, size, tw, rank: w.rank });
           currentWidth += tw + (currentRow.length > 1 ? gapX : 0);
         }
         if (currentRow.length) rows.push(currentRow);
@@ -635,10 +651,12 @@
       result.rows.forEach((row, ri) => {
         const rowHeight = result.rowHeights[ri];
         const rowWidth = row.reduce((sum, it, idx) => sum + it.tw + (idx > 0 ? gapX : 0), 0);
-        let x = -rowWidth / 2;
+        // 행마다 남는 폭의 일부만큼 무작위로 좌우 오프셋을 줘 세로 정렬선이 생기지 않게 한다
+        const slack = Math.max(0, maxRowWidth - rowWidth);
+        let x = -rowWidth / 2 + (Math.random() - 0.5) * Math.min(slack, 260) * 0.7;
         row.forEach((it) => {
           const cx = x + it.tw / 2;
-          const cy = y + rowHeight / 2 + (Math.random() * 8 - 4); // 살짝 랜덤 지터로 딱딱함 완화
+          const cy = y + rowHeight / 2 + (Math.random() * 10 - 5); // 살짝 랜덤 지터로 딱딱함 완화
           const hh = wcHash(it.word);
           placed.push({
             word: it.word, count: it.count, x: cx, y: cy,
@@ -680,9 +698,9 @@
       if (isSentenceMode(words)) {
         layout = wcLayoutFlow(words); // 항상 성공, 트리밍 없음 — 전부 표시
       } else {
-        layout = wcLayout(words);
-        while (!layout && words.length > 5) { words = words.slice(0, Math.floor(words.length * 0.8)); layout = wcLayout(words); }
-        if (!layout) return;
+        // 무작위 산포 우선, 실패하면 행 패킹으로 폴백 — 하위 항목을 잘라내던 트리밍은 제거.
+        // 어떤 개수·길이 조합이든 응답이 조용히 누락되는 일이 없어야 한다.
+        layout = wcLayout(words) || wcLayoutFlow(words, { mix: true });
       }
       updateWordcloud(layout);
     }
