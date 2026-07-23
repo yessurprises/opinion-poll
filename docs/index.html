@@ -582,6 +582,77 @@
       return null; // 최소 축소로도 안 들어가면 호출부에서 하위 단어 잘라 재시도
     }
 
+    // 응답 중 공백 포함 비율이 높으면(=단어보다 문장에 가까우면) 나선/무작위 배치 대신
+    // 행 흐름(flow) 배치를 쓴다. 넓은 문장을 원형 캔버스 중앙에 우겨넣으려 하면 가운데만
+    // 쓰고 트리밍까지 발생하기 때문 — 문장은 화면 전체를 줄바꿈하듯 채우는 게 자연스럽다.
+    function isSentenceMode(words) {
+      if (!words.length) return false;
+      const withSpace = words.filter((w) => w.word.includes(" ")).length;
+      return withSpace / words.length > 0.3;
+    }
+
+    // 문장형 전용: 캔버스 전체를 행 단위로 채워 트리밍 없이 전부 표시한다.
+    function wcLayoutFlow(words) {
+      const marginX = 50, marginY = 40, gapX = 30, gapY = 22;
+      const maxRowWidth = WC_W - marginX * 2;
+      const maxTotalHeight = WC_H - marginY * 2;
+      const max = Math.max(...words.map((w) => w.count), 1);
+      const sizeOf = (w) => 26 + 30 * Math.pow(w.count / max, 0.6); // 문장은 크기 차를 완만하게
+
+      function tryLayout(scale) {
+        const rows = [];
+        let currentRow = [];
+        let currentWidth = 0;
+        for (let i = 0; i < words.length; i++) {
+          const w = words[i];
+          const size = Math.max(15, Math.round(sizeOf(w) * scale));
+          wcMeasureCtx.font = `800 ${size}px Pretendard, "Malgun Gothic", sans-serif`;
+          const tw = wcMeasureCtx.measureText(w.word).width;
+          const addedWidth = tw + (currentRow.length ? gapX : 0);
+          if (currentRow.length && currentWidth + addedWidth > maxRowWidth) {
+            rows.push(currentRow);
+            currentRow = [];
+            currentWidth = 0;
+          }
+          currentRow.push({ word: w.word, count: w.count, size, tw, rank: i });
+          currentWidth += tw + (currentRow.length > 1 ? gapX : 0);
+        }
+        if (currentRow.length) rows.push(currentRow);
+        const rowHeights = rows.map((row) => Math.max(...row.map((it) => it.size)) * 1.3);
+        const totalHeight = rowHeights.reduce((a, b) => a + b, 0) + gapY * Math.max(0, rows.length - 1);
+        return { rows, rowHeights, totalHeight };
+      }
+
+      let scale = 1;
+      let result = tryLayout(scale);
+      for (let tries = 0; tries < 8 && result.totalHeight > maxTotalHeight; tries++) {
+        scale *= 0.86;
+        result = tryLayout(scale);
+      }
+
+      const placed = [];
+      let y = -Math.min(result.totalHeight, maxTotalHeight) / 2;
+      result.rows.forEach((row, ri) => {
+        const rowHeight = result.rowHeights[ri];
+        const rowWidth = row.reduce((sum, it, idx) => sum + it.tw + (idx > 0 ? gapX : 0), 0);
+        let x = -rowWidth / 2;
+        row.forEach((it) => {
+          const cx = x + it.tw / 2;
+          const cy = y + rowHeight / 2 + (Math.random() * 8 - 4); // 살짝 랜덤 지터로 딱딱함 완화
+          const hh = wcHash(it.word);
+          placed.push({
+            word: it.word, count: it.count, x: cx, y: cy,
+            bw: it.tw, bh: it.size * 1.3, size: it.size, vertical: false,
+            color: it.rank === 0 ? WC_TOP_COLOR : WC_PALETTE[hh % WC_PALETTE.length],
+            opacity: it.rank === 0 ? 1 : 0.78 + 0.22 * Math.pow(it.count / max, 0.5),
+          });
+          x += it.tw + gapX;
+        });
+        y += rowHeight + gapY;
+      });
+      return placed;
+    }
+
     function ensureWordcloud(el, poll) {
       if (el.dataset.wcPoll !== poll.id) {
         el.dataset.wcPoll = poll.id;
@@ -589,16 +660,8 @@
           <div class="s-title" id="wc-title">${escapeHtml(poll.question)}</div>
           <div class="s-cloud-wrap"><svg id="wc-svg" viewBox="${-WC_W / 2} ${-WC_H / 2} ${WC_W} ${WC_H}" preserveAspectRatio="xMidYMid meet">
             <defs>
-              <filter id="wc-glow" x="-40%" y="-40%" width="180%" height="180%">
-                <feGaussianBlur stdDeviation="5" result="b" />
-                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-              </filter>
               <filter id="wc-top-special" x="-120%" y="-250%" width="340%" height="600%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="haloBlur" />
-                <feColorMatrix in="haloBlur" type="matrix"
-                  values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.5 0" result="halo" />
-                <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#000" flood-opacity="0.3" result="shadow" />
-                <feMerge><feMergeNode in="halo" /><feMergeNode in="shadow" /><feMergeNode in="SourceGraphic" /></feMerge>
+                <feDropShadow dx="0" dy="4" stdDeviation="2" flood-color="#2a1440" flood-opacity="0.75" />
               </filter>
             </defs>
             <g id="wc-words"></g>
@@ -613,9 +676,14 @@
       if (dataKey === wcLastData) return; // 데이터 그대로면 손대지 않음
       wcLastData = dataKey;
 
-      let layout = wcLayout(words);
-      while (!layout && words.length > 5) { words = words.slice(0, Math.floor(words.length * 0.8)); layout = wcLayout(words); }
-      if (!layout) return;
+      let layout;
+      if (isSentenceMode(words)) {
+        layout = wcLayoutFlow(words); // 항상 성공, 트리밍 없음 — 전부 표시
+      } else {
+        layout = wcLayout(words);
+        while (!layout && words.length > 5) { words = words.slice(0, Math.floor(words.length * 0.8)); layout = wcLayout(words); }
+        if (!layout) return;
+      }
       updateWordcloud(layout);
     }
 
@@ -648,8 +716,7 @@
         t.style.fontSize = p.size + "px";
         t.style.fill = p.color;
         t.style.opacity = p.opacity;
-        if (rank === 0) t.setAttribute("filter", "url(#wc-top-special)"); // 1위 전용: 절제된 정적 오라(펄스 애니메이션 아님)
-        else if (rank < 4) t.setAttribute("filter", "url(#wc-glow)");
+        if (rank === 0) t.setAttribute("filter", "url(#wc-top-special)"); // 1위 전용: 은은한 그림자만(글로우 없음)
         else t.removeAttribute("filter");
       });
       g.querySelectorAll("text:not(.wc-fx)").forEach((t) => {
@@ -688,8 +755,8 @@
              <feOffset in="b" dx="${(8 * scale).toFixed(1)}" dy="${(-1 * scale).toFixed(1)}" result="bOff" />
              <feBlend in="rOff" in2="gc" mode="screen" result="rgc" />
              <feBlend in="rgc" in2="bOff" mode="screen" />`
-          : `<feDropShadow dx="${(2 * scale).toFixed(1)}" dy="${(3 * scale).toFixed(1)}" stdDeviation="1" flood-color="#000" flood-opacity="0.85" />
-             <feDropShadow dx="${(6 * scale).toFixed(1)}" dy="${(9 * scale).toFixed(1)}" stdDeviation="${(4 * scale).toFixed(1)}" flood-color="#000" flood-opacity="0.5" />`;
+          : `<feDropShadow dx="${(2 * scale).toFixed(1)}" dy="${(3 * scale).toFixed(1)}" stdDeviation="1" flood-color="#2a1440" flood-opacity="0.9" />
+             <feDropShadow dx="${(6 * scale).toFixed(1)}" dy="${(9 * scale).toFixed(1)}" stdDeviation="${(4 * scale).toFixed(1)}" flood-color="#2a1440" flood-opacity="0.65" />`;
         defs.appendChild(filterEl);
 
         const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
